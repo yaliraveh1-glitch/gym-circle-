@@ -109,11 +109,33 @@ def anim(e):
             .replace("__ANC__", json.dumps(e["anc"])).replace("__W__", str(e["w"])))
 
 
+SPORTS = {
+    "Focus": ["Gym · חדר כושר", "Running · ריצה"],
+    "Individual": ["Athletics · אתלטיקה", "Swimming · שחייה", "Cycling · אופניים", "Triathlon · טריאתלון", "Tennis · טניס", "Gymnastics · התעמלות", "Judo · ג'ודו", "Taekwondo · טאקוונדו", "Karate · קראטה", "Kickboxing · קיק בוקס", "Boxing · אגרוף", "MMA · אומנויות לחימה משולבות", "Sambo · סמבו", "Kendo · קנדו", "Fencing · סיף", "Rowing · חתירה", "Kayak · קיאקים", "Archery · חץ וקשת", "Shooting · קליעה", "Equestrian · רכיבה על סוסים", "Weightlifting · הרמת משקולות", "Powerlifting · הרמת כוח", "Climbing · טיפוס ספורטיבי", "Badminton · בדמינטון", "Table tennis · טניס שולחן", "Squash · סקווש", "Golf · גולף", "Cheerleading · צ'ירלידינג", "Chess · שחמט", "Bridge · ברידג'"],
+    "Team": ["Football · כדורגל", "Basketball · כדורסל", "Volleyball · כדורעף", "Handball · כדוריד", "Water polo · כדור מים", "Rugby · רוגבי", "Baseball · בייסבול", "Softball · סופטבול", "Cricket · קריקט", "Ice hockey · הוקי קרח", "Roller hockey · הוקי גלגליות", "Ultimate frisbee · פריסבי", "Lacrosse · לקרוס", "American football · פוטבול", "Tug of war · משיכת חבל"],
+}
+ALL_SPORTS = [x for v in SPORTS.values() for x in v]
+EX["treadmill"]["cat"] = "Running"
+EX["run"] = dict(EX["treadmill"], name="Outdoor run", cat="Running", eq="", sets="20 to 60 minutes",
+                 steps=["Warm up with 5 minutes of easy jogging and leg swings.", "Run at a conversational pace, landing softly under your hips.", "Finish with 5 minutes of walking and gentle stretching."], tip="Build weekly distance by no more than 10 percent.")
+# author id (None = you), sport, text, stats, likes, time
+SEED = [
+    (0, "Gym · חדר כושר", "Squat PR day. Finally hit 110 kg for three clean reps.", ["110 kg × 3", "Leg day"], 14, "25 min ago"),
+    (1, "Running · ריצה", "Easy 10K along the beach before work. Perfect weather.", ["10.2 km", "54 min", "5:18 /km"], 21, "1 hour ago"),
+    (6, "Running · ריצה", "Intervals done. Six rounds of 800 m and my legs are shaking.", ["6 × 800 m", "3:35 average"], 17, "3 hours ago"),
+    (5, "Gym · חדר כושר", "Ring muscle-up progressions after a pull day.", ["Pull day", "65 min"], 9, "5 hours ago"),
+    (7, "Swimming · שחייה", "Open water swim in the Red Sea before the first dive group.", ["1.5 km", "32 min"], 25, "Yesterday"),
+    (9, "Gymnastics · התעמלות", "Handstand hold: 12 seconds today, up from 8 last week.", ["12 s hold"], 12, "Yesterday"),
+]
+
 # ------------------------------------------------------------------ state and helpers
 ss = st.session_state
 ss.setdefault("saved", set())
 ss.setdefault("hi", set())
 ss.setdefault("gym_sel", "Iron Haven")
+ss.setdefault("pl", set())
+ss.setdefault("up_n", 0)
+ss.setdefault("posts", [dict(id=i, uid=a, sport=sp, text=tx, stats=stt, likes=l, t=w, photo=None) for i, (a, sp, tx, stt, l, w) in enumerate(SEED)])
 ME = (31.965, 34.795)
 with st.sidebar:
     st.subheader("Your location")
@@ -230,9 +252,81 @@ def grid(lst, k):
             person_card(p, k)
 
 
+def toggle_like(i):
+    ss.pl.symmetric_difference_update({i})
+
+
+def delete_post(i):
+    ss.posts = [p for p in ss.posts if p["id"] != i]
+
+
+def share():
+    up = ss.get(f"p_up{ss.up_n}")
+    tx = ss.get("p_text", "").strip()
+    if not tx and not up:
+        st.toast("Add some text or a photo first")
+        return
+    stt = []
+    if ss.p_sport.startswith("Running") and ss.get("p_km", 0) > 0 and ss.get("p_min", 0) > 0:
+        pace = ss.p_min / ss.p_km
+        stt = [f"{ss.p_km:.1f} km", f"{ss.p_min} min", f"{int(pace)}:{int(pace % 1 * 60):02d} /km"]
+    ss.posts.insert(0, dict(id=max([p["id"] for p in ss.posts], default=-1) + 1, uid=None, sport=ss.p_sport, text=tx, stats=stt,
+                            likes=0, t="Just now", photo=up.getvalue() if up else None))
+    ss.p_text, ss.p_km, ss.p_min = "", 0.0, 0
+    ss.up_n += 1
+    st.toast("Your post is live")
+
+
+def post_card(po):
+    me = po["uid"] is None
+    with st.container(border=True):
+        a, b = st.columns([1, 5])
+        if me:
+            a.markdown("**You**")
+        else:
+            a.image(PEOPLE[po["uid"]]["img"], width=56)
+        b.markdown(f"**{'You' if me else PEOPLE[po['uid']]['name']}** · {po['t']}")
+        b.markdown(chips([po["sport"]]), unsafe_allow_html=True)
+        st.write(po["text"])
+        if po["photo"]:
+            st.image(po["photo"])
+        else:
+            h = (po["id"] * 61 + 160) % 360
+            st.markdown(f'<div style="height:130px;border-radius:16px;color:#fff;font:700 20px system-ui;display:flex;align-items:flex-end;padding:14px;'
+                        f'background:linear-gradient(135deg,hsl({h},62%,46%),hsl({(h + 60) % 360},58%,26%))">{po["sport"].split(" · ")[0]}</div>', unsafe_allow_html=True)
+        if po["stats"]:
+            st.markdown(chips(po["stats"]), unsafe_allow_html=True)
+        liked = po["id"] in ss.pl
+        c1, c2 = st.columns([1, 1])
+        c1.button(f"{'Liked' if liked else 'Like'} · {po['likes'] + liked}", key=f"pl{po['id']}", on_click=toggle_like, args=(po["id"],))
+        if me:
+            c2.button("Delete", key=f"pd{po['id']}", on_click=delete_post, args=(po["id"],))
+
+
 # ------------------------------------------------------------------ layout
 st.markdown('<div class="brand">GymCircle</div><div class="tagl">Your gym, your people.</div>', unsafe_allow_html=True)
-t_home, t_gyms, t_work, t_saved = st.tabs(["Home", "Gyms", "Workouts", f"Saved ({len(ss.saved | ss.hi)})"])
+t_feed, t_home, t_gyms, t_work, t_saved = st.tabs(["Feed", "People", "Gyms", "Workouts", f"Saved ({len(ss.saved | ss.hi)})"])
+
+with t_feed:
+    with st.container(border=True):
+        st.markdown("**Share your workout**")
+        sp = st.selectbox("Sport", ALL_SPORTS, key="p_sport")
+        st.text_area("What did you do today?", key="p_text", height=80, placeholder="A new personal best, a route you loved, a tip for others...")
+        if sp.startswith("Running"):
+            r1, r2 = st.columns(2)
+            r1.number_input("Distance (km)", min_value=0.0, max_value=100.0, step=0.1, key="p_km")
+            r2.number_input("Time (minutes)", min_value=0, max_value=600, step=1, key="p_min")
+        st.file_uploader("Add a photo (optional)", type=["jpg", "jpeg", "png"], key=f"p_up{ss.up_n}")
+        st.button("Share", type="primary", on_click=share)
+    flt = st.radio("Show", ["All", "Gym", "Running", "Other sports"], horizontal=True, label_visibility="collapsed")
+    for po in ss.posts:
+        k = po["sport"].split(" · ")[0]
+        if flt == "All" or (flt == "Gym" and k == "Gym") or (flt == "Running" and k == "Running") or (flt == "Other sports" and k not in ("Gym", "Running")):
+            post_card(po)
+    with st.expander("All sports on GymCircle"):
+        for grp, items in SPORTS.items():
+            st.markdown(f"**{grp}**")
+            st.markdown(chips(items), unsafe_allow_html=True)
 
 with t_home:
     live = sorted([p for p in PEOPLE if p["done"] is not None], key=lambda p: km(GYMS[p["gym"]]["ll"]))
