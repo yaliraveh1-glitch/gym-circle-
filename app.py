@@ -1,8 +1,14 @@
+import datetime
 import json
 import math
+import random
+import urllib.parse
+import urllib.request
 from collections import Counter
 
 import folium
+import pandas as pd
+from folium.plugins import MarkerCluster
 import streamlit as st
 import streamlit.components.v1 as components
 from streamlit_folium import st_folium
@@ -134,6 +140,9 @@ ss.setdefault("saved", set())
 ss.setdefault("hi", set())
 ss.setdefault("gym_sel", "Iron Haven")
 ss.setdefault("pl", set())
+_t = datetime.date.today()
+ss.setdefault("log", [dict(d=_t - datetime.timedelta(days=a), sport=b, min=c, km=e) for a, b, c, e in
+                      [(1, "Gym · חדר כושר", 60, 0), (2, "Running · ריצה", 45, 7.5), (3, "Gym · חדר כושר", 55, 0), (5, "Running · ריצה", 50, 8.2), (6, "Swimming · שחייה", 40, 1.2)]])
 ss.setdefault("up_n", 0)
 ss.setdefault("posts", [dict(id=i, uid=a, sport=sp, text=tx, stats=stt, likes=l, t=w, photo=None) for i, (a, sp, tx, stt, l, w) in enumerate(SEED)])
 ME = (31.965, 34.795)
@@ -271,7 +280,8 @@ def share():
         pace = ss.p_min / ss.p_km
         stt = [f"{ss.p_km:.1f} km", f"{ss.p_min} min", f"{int(pace)}:{int(pace % 1 * 60):02d} /km"]
     ss.posts.insert(0, dict(id=max([p["id"] for p in ss.posts], default=-1) + 1, uid=None, sport=ss.p_sport, text=tx, stats=stt,
-                            likes=0, t="Just now", photo=up.getvalue() if up else None))
+                            likes=0, t="Just now", photo=up.getvalue() if up else None,
+                            gym=None if ss.get("p_gym", "No gym") == "No gym" else ss.p_gym))
     ss.p_text, ss.p_km, ss.p_min = "", 0.0, 0
     ss.up_n += 1
     st.toast("Your post is live")
@@ -286,7 +296,7 @@ def post_card(po):
         else:
             a.image(PEOPLE[po["uid"]]["img"], width=56)
         b.markdown(f"**{'You' if me else PEOPLE[po['uid']]['name']}** · {po['t']}")
-        b.markdown(chips([po["sport"]]), unsafe_allow_html=True)
+        b.markdown(chips([po["sport"]] + ([f"at {po['gym']}"] if po.get("gym") else [])), unsafe_allow_html=True)
         st.write(po["text"])
         if po["photo"]:
             st.image(po["photo"])
@@ -303,14 +313,199 @@ def post_card(po):
             c2.button("Delete", key=f"pd{po['id']}", on_click=delete_post, args=(po["id"],))
 
 
+TYP = "Price not listed. Typical Israeli gym range: ₪250 to ₪400 a month (estimate, confirm with the gym)."
+CHAINS = [  # keywords, price from (₪/month), note. Prices from Israeli press reports, may change.
+    (("space", "ספייס"), 149, "Space: local plan from about ₪149 a month, national multi-club plan about ₪179 to ₪199."),
+    (("icon", "אייקון"), 159, "Icon Fitness (Holmes Place budget brand): from about ₪159 a month with a 12 month commitment."),
+    (("pro fit", "profit", "פרופיט"), 119, "Pro Fit: off-peak plan from about ₪119 a month."),
+    (("holmes", "הולמס"), None, "Holmes Place premium club. " + TYP),
+    (("go active", "גו אקטיב", "great shape", "גרייט שייפ", "sporter", "ספורטר", "sher", "שר פיטנס", "swift", "סוויפט"), None, "Major Israeli chain. " + TYP),
+]
+MIX = ["Chest and triceps", "Leg day", "Back and biceps", "Treadmill cardio", "Full body", "Shoulders and core", "Spinning class", "Yoga and mobility", "Outdoor run prep"]
+CURVE = [.05, .03, .02, .02, .03, .2, .5, .7, .6, .45, .35, .35, .45, .4, .35, .4, .55, .85, 1, .95, .75, .45, .2, .1]
+
+
+def price_info(name, brand):
+    t = (name + " " + brand).lower()
+    for keys, pr, note in CHAINS:
+        if any(k in t for k in keys):
+            return pr, note
+    return None, TYP
+
+
+@st.cache_data(ttl=86400, show_spinner="Loading gyms across Israel...")
+def load_osm():
+    q = '[out:json][timeout:60];area["ISO3166-1"="IL"][admin_level=2]->.a;(node["leisure"="fitness_centre"](area.a);way["leisure"="fitness_centre"](area.a););out center tags 4000;'
+    for url in ("https://overpass-api.de/api/interpreter", "https://overpass.kumi.systems/api/interpreter"):
+        try:
+            req = urllib.request.Request(url, data=urllib.parse.urlencode({"data": q}).encode(), headers={"User-Agent": "GymCircleDemo/1.0"})
+            out = []
+            for e in json.load(urllib.request.urlopen(req, timeout=70))["elements"]:
+                t, c = e.get("tags", {}), e.get("center", {})
+                lat, lon = e.get("lat", c.get("lat")), e.get("lon", c.get("lon"))
+                name = t.get("name:en") or t.get("name") or t.get("brand")
+                if name and lat and lon:
+                    out.append(dict(osm=e["id"], name=name, lat=lat, lon=lon, brand=t.get("brand", ""), hours=t.get("opening_hours", "Hours not listed"),
+                                    addr=" ".join(x for x in [t.get("addr:street"), t.get("addr:housenumber"), t.get("addr:city")] if x) or "Address not listed",
+                                    web=t.get("website") or t.get("contact:website"), phone=t.get("phone") or t.get("contact:phone")))
+            if out:
+                return out
+        except Exception:
+            continue
+    return []
+
+
+def build_dir():
+    d = [dict(key=f"d{i}", name=n, lat=g["ll"][0], lon=g["ll"][1], addr=g["addr"], hours=g["hours"], price=g["price"], web=None, phone=None, demo=True,
+              note="Membership price shown by the gym community.", cap=g["members"] // 18) for i, (n, g) in enumerate(GYMS.items())]
+    for o in load_osm():
+        pr, note = price_info(o["name"], o["brand"])
+        d.append(dict(key=f"o{o['osm']}", name=o["name"], lat=o["lat"], lon=o["lon"], addr=o["addr"], hours=o["hours"], price=pr, web=o["web"], phone=o["phone"],
+                      demo=False, note=note, cap=25 + int(random.Random(str(o["osm"])).random() * 50)))
+    return d
+
+
+def hour_now():
+    return (datetime.datetime.utcnow().hour + 2) % 24
+
+
+def sim_active(g, h):
+    return int(g["cap"] * CURVE[h] * random.Random(f"{g['key']}{h}").uniform(.6, 1.1))
+
+
+def mix_for(g, n):
+    c = Counter(random.Random(g["key"] + str(hour_now())).choices(MIX, weights=[5, 4, 4, 5, 3, 2, 2, 1, 1], k=max(n, 0)))
+    if g["demo"]:
+        c.update(p["plan"] for p in active_at(g["name"]))
+    return c
+
+
+def gyms_tab():
+    D, h = build_dir(), hour_now()
+    for g in D:
+        g["act"] = sim_active(g, h) + (len(active_at(g["name"])) if g["demo"] else 0)
+    c1, c2 = st.columns([2, 1])
+    q = c1.text_input("Search gyms", placeholder="Search by gym name, chain or street", label_visibility="collapsed")
+    r = c2.selectbox("Within", [5, 10, 25, 50, 400], index=2, format_func=lambda x: f"Within {x} km" if x < 400 else "All Israel", label_visibility="collapsed")
+    sort = st.radio("Sort", ["Closest", "Most active", "Lowest price"], horizontal=True, label_visibility="collapsed")
+    res = [g for g in D if km((g["lat"], g["lon"])) <= r and (not q or q.lower() in (g["name"] + " " + g["addr"]).lower())]
+    res.sort(key={"Closest": lambda g: km((g["lat"], g["lon"])), "Most active": lambda g: -g["act"], "Lowest price": lambda g: (g["price"] is None, g["price"] or 0)}[sort])
+    res = res[:400]
+    st.caption(f"{len(res)} gyms shown · {sum(g['act'] for g in res)} people training now (simulated activity)" + ("" if load_osm() else " · Live gym database unavailable, showing featured gyms only"))
+    m = folium.Map(location=ME, zoom_start={5: 13, 10: 12, 25: 11, 50: 10, 400: 8}[r], tiles="OpenStreetMap")
+    folium.CircleMarker(ME, radius=8, color="#fff", weight=3, fill=True, fill_color="#2563eb", fill_opacity=1, tooltip="You").add_to(m)
+    mc = MarkerCluster().add_to(m)
+    for g in res:
+        b = g["act"] / max(g["cap"], 1)
+        col = "#16a34a" if b < .4 else "#f59e0b" if b < .75 else "#dc2626"
+        html = (f'<div style="width:30px;height:30px;border-radius:50%;background:{col};color:#fff;border:2px solid #fff;font:700 12px system-ui;'
+                f'display:flex;align-items:center;justify-content:center;box-shadow:0 1px 6px rgba(0,0,0,.4)">{g["act"]}</div>')
+        folium.Marker((g["lat"], g["lon"]), tooltip=f"{g['name']} · {g['key']}", icon=folium.DivIcon(html=html, icon_size=(30, 30), icon_anchor=(15, 15))).add_to(mc)
+    out = render_map(m)
+    clicked = ((out or {}).get("last_object_clicked_tooltip") or "").rsplit(" · ", 1)[-1]
+    if clicked and clicked != ss.get("last_click") and any(g["key"] == clicked for g in D):
+        ss["last_click"], ss["gsel"] = clicked, clicked
+    st.caption("Circle number = people training now. Green is quiet, amber moderate, red busy. Tap a pin for details.")
+    by = {g["key"]: g for g in D}
+    opts = [g["key"] for g in res[:80]]
+    if ss.get("gsel") in by and ss["gsel"] not in opts:
+        opts.insert(0, ss["gsel"])
+    if not opts:
+        st.info("No gyms match. Try a wider distance.")
+        return
+    if ss.get("gsel") not in opts:
+        ss["gsel"] = opts[0]
+    g = by[st.selectbox("Gym", opts, key="gsel", format_func=lambda k: f"{by[k]['name']} · {by[k]['addr'][:30]}", label_visibility="collapsed")]
+    ss["gname"] = g["name"]
+    busy = g["act"] / max(g["cap"], 1)
+    st.subheader(g["name"])
+    st.caption(f"{g['addr']} · {dist((g['lat'], g['lon']))}")
+    a, b, c = st.columns(3)
+    a.metric("Training now", g["act"])
+    b.metric("Busy level", "Quiet" if busy < .4 else "Moderate" if busy < .75 else "Busy")
+    c.metric("Membership", f"from ₪{g['price']}" if g["price"] else "Ask the gym")
+    st.caption(g["note"])
+    st.markdown(f"**Hours:** {g['hours']}" + (f"  \n**Phone:** {g['phone']}" if g["phone"] else ""))
+    if g["web"]:
+        st.link_button("Visit website", g["web"])
+    st.markdown("#### What people are training now")
+    mx = mix_for(g, g["act"])
+    st.bar_chart(pd.Series(dict(mx)).sort_values()) if mx else st.caption("Nobody is training right now.")
+    st.markdown("#### Best times to go")
+    st.bar_chart(pd.Series({f"{x:02d}:00": int(g["cap"] * CURVE[x]) for x in range(5, 24)}))
+    if g["demo"]:
+        st.markdown("#### Members in the community")
+        for p in [p for p in PEOPLE if p["gym"] == g["name"]]:
+            r1, r2, r3 = st.columns([1, 4, 2])
+            r1.image(p["img"], width=64)
+            r2.markdown(f"**{p['name']}, {p['age']}**  \n{p['plan']} · {p['dur']} min")
+            r2.markdown(status(p), unsafe_allow_html=True)
+            if r3.button("View profile", key=f"g{p['id']}"):
+                show_profile(p["id"])
+    gp = [p for p in ss.posts if p.get("gym") == g["name"]]
+    if gp:
+        st.markdown("#### Posts from this gym")
+        for po in gp[:3]:
+            post_card(po)
+    else:
+        st.caption("No posts yet. Share a workout in the Feed and tag this gym.")
+    with st.expander("About this data"):
+        st.markdown("Gym locations, addresses and opening hours come live from OpenStreetMap. Chain prices come from Israeli press reports and can change, so confirm with the gym. "
+                    "Live activity and workout mix are simulated in this demo and become real once members check in.")
+
+
+def add_log():
+    ss.log.append(dict(d=datetime.date.today(), sport=ss.l_sp, min=ss.l_min, km=ss.l_km))
+    st.toast("Workout saved")
+
+
+def log_section():
+    with st.expander("Log a workout"):
+        c1, c2, c3 = st.columns(3)
+        c1.selectbox("Sport", ALL_SPORTS, key="l_sp")
+        c2.number_input("Minutes", min_value=1, max_value=600, value=45, key="l_min")
+        c3.number_input("Distance km (optional)", min_value=0.0, max_value=200.0, step=0.1, key="l_km")
+        st.button("Save workout", type="primary", on_click=add_log)
+
+
+def me_tab():
+    L, today = ss.log, datetime.date.today()
+    days = {x["d"] for x in L}
+    d, streak = (today if today in days else today - datetime.timedelta(days=1)), 0
+    while d in days:
+        streak, d = streak + 1, d - datetime.timedelta(days=1)
+    week = {(today - datetime.timedelta(days=i)).strftime("%m-%d"): sum(l["min"] for l in L if l["d"] == today - datetime.timedelta(days=i)) for i in range(6, -1, -1)}
+    kmt, sports = sum(l["km"] for l in L), {l["sport"] for l in L}
+    a, b, c = st.columns(3)
+    a.metric("Streak", f"{streak} days")
+    b.metric("This week", f"{sum(week.values())} min")
+    c.metric("Workouts", len(L))
+    st.bar_chart(pd.Series(week))
+    st.markdown("**Badges**")
+    st.markdown("".join(f'<span class="{"chip" if ok else "soon"}" style="margin:0 6px 6px 0">{t}</span>' for t, ok in
+                        [("First workout", len(L) >= 1), ("3 day streak", streak >= 3), ("Explorer: 3 sports", len(sports) >= 3), ("Century runner: 100 km", kmt >= 100)]), unsafe_allow_html=True)
+    st.markdown("**Challenges**")
+    for t, v, goal, u in [("Run 100 km", kmt, 100, "km"), ("Complete 12 workouts", len(L), 12, ""), ("Try 3 different sports", len(sports), 3, "")]:
+        st.progress(min(v / goal, 1.0), text=f"{t}: {v:g} / {goal} {u}".strip())
+    st.markdown("**Distance leaderboard** (demo data)")
+    board = sorted([(p["name"], round(random.Random(p["id"]).uniform(20, 140), 1)) for p in PEOPLE] + [("You", round(kmt, 1))], key=lambda x: -x[1])[:8]
+    st.markdown("  \n".join(f"{i}. {'**You**' if n == 'You' else n} · {k} km" for i, (n, k) in enumerate(board, 1)))
+
+
 # ------------------------------------------------------------------ layout
 st.markdown('<div class="brand">GymCircle</div><div class="tagl">Your gym, your people.</div>', unsafe_allow_html=True)
-t_feed, t_home, t_gyms, t_work, t_saved = st.tabs(["Feed", "People", "Gyms", "Workouts", f"Saved ({len(ss.saved | ss.hi)})"])
+t_feed, t_gyms, t_home, t_work, t_me = st.tabs(["Feed", "Gyms", "People", "Train", "Me"])
 
 with t_feed:
+    live_p = [p for p in PEOPLE if p["done"] is not None][:6]
+    st.caption("Training now")
+    for c, p in zip(st.columns(6), live_p):
+        c.image(p["img"], width=64)
+        c.caption(p["name"].split()[0])
     with st.container(border=True):
         st.markdown("**Share your workout**")
         sp = st.selectbox("Sport", ALL_SPORTS, key="p_sport")
+        st.selectbox("Tag a gym (optional)", ["No gym"] + list(GYMS) + ([ss["gname"]] if ss.get("gname") and ss["gname"] not in GYMS else []), key="p_gym")
         st.text_area("What did you do today?", key="p_text", height=80, placeholder="A new personal best, a route you loved, a tip for others...")
         if sp.startswith("Running"):
             r1, r2 = st.columns(2)
@@ -337,43 +532,10 @@ with t_home:
     grid([p for p in PEOPLE if p["done"] is None], "p")
 
 with t_gyms:
-    m = folium.Map(tiles="OpenStreetMap")
-    lls = [g["ll"] for g in GYMS.values()]
-    m.fit_bounds([[min(a for a, b in lls) - .1, min(b for a, b in lls) - .1], [max(a for a, b in lls) + .1, max(b for a, b in lls) + .1]])
-    folium.CircleMarker(ME, radius=8, color="#ffffff", weight=3, fill=True, fill_color="#2563eb", fill_opacity=1, tooltip="You").add_to(m)
-    for n, g in GYMS.items():
-        c = len(active_at(n))
-        html = (f'<div style="width:38px;height:38px;border-radius:50%;background:{"#0f766e" if c else "#94a3b8"};color:#fff;border:3px solid #fff;'
-                f'font:700 15px system-ui;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 8px rgba(0,0,0,.35)">{c}</div>')
-        folium.Marker(g["ll"], tooltip=n, icon=folium.DivIcon(html=html, icon_size=(38, 38), icon_anchor=(19, 19))).add_to(m)
-    out = render_map(m)
-    clicked = (out or {}).get("last_object_clicked_tooltip")
-    if clicked in GYMS and clicked != ss.get("last_click"):
-        ss["last_click"] = clicked
-        ss["gym_sel"] = clicked
-    st.caption("Numbers show how many people are training right now. Tap a gym to see details.")
-    name = st.selectbox("Gym", list(GYMS), key="gym_sel")
-    g = GYMS[name]
-    here = [p for p in PEOPLE if p["gym"] == name]
-    st.subheader(name)
-    st.caption(f"{g['addr']} · {dist(g['ll'])}")
-    c1, c2, c3 = st.columns(3)
-    c1.metric("Training now", len(active_at(name)))
-    c2.metric("Membership", f"₪{g['price']} a month")
-    c3.metric("Rating", f"{g['rating']} / 5")
-    st.markdown(f"{g['hours']} · Busiest {g['peak']} · {g['members']:,} members")
-    st.markdown(chips(g["am"] + ["Free 7 day trial"]), unsafe_allow_html=True)
-    st.markdown("#### Today’s plans at this gym")
-    st.markdown(chips(f"{k} ×{v}" for k, v in Counter(p["plan"] for p in here).items()), unsafe_allow_html=True)
-    for p in here:
-        r1, r2, r3 = st.columns([1, 4, 2])
-        r1.image(p["img"], width=64)
-        r2.markdown(f"**{p['name']}, {p['age']}**  \n{p['plan']} · {p['dur']} min")
-        r2.markdown(status(p), unsafe_allow_html=True)
-        if r3.button("View profile", key=f"g{p['id']}"):
-            show_profile(p["id"])
+    gyms_tab()
 
 with t_work:
+    log_section()
     st.markdown("### Workout library")
     st.caption("Tap any exercise to see how it is done.")
     cat = st.radio("Muscle group", ["All"] + sorted({e["cat"] for e in EX.values()}), horizontal=True, label_visibility="collapsed")
@@ -385,7 +547,9 @@ with t_work:
             if st.button("See how it’s done", key=f"ex{eid}"):
                 show_exercise(eid)
 
-with t_saved:
+with t_me:
+    me_tab()
+    st.markdown("**People you saved or said hi to**")
     ids = sorted(ss.saved | ss.hi)
     if not ids:
         st.info("People you save or say hi to will appear here.")
