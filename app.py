@@ -1,34 +1,14 @@
-import datetime
 import json
-import math
-import random
-import urllib.parse
-import urllib.request
-from collections import Counter
 
-import folium
-import pandas as pd
-from folium.plugins import MarkerCluster
 import streamlit as st
 import streamlit.components.v1 as components
-from streamlit_folium import st_folium
 
 st.set_page_config(page_title="GymCircle", page_icon="🏋️", layout="centered")
-try:
-    from streamlit_geolocation import streamlit_geolocation
-except Exception:
-    streamlit_geolocation = None
-
 st.markdown("""<style>
-.block-container{padding-top:1.2rem;max-width:760px}
-.brand{font-size:28px;font-weight:800;color:#0f766e;letter-spacing:-.5px}
-.tagl{color:#64748b;margin:-4px 0 8px}
-.chip{display:inline-block;background:#ecfdf5;color:#0f766e;border-radius:14px;padding:3px 11px;font-size:12.5px;font-weight:600;margin:0 6px 6px 0}
-.live{display:inline-block;background:#dcfce7;color:#166534;border-radius:14px;padding:3px 10px;font-size:12.5px;font-weight:600}
-.soon{display:inline-block;background:#f1f5f9;color:#475569;border-radius:14px;padding:3px 10px;font-size:12.5px;font-weight:600}
-[data-testid="stImage"]{width:100%!important}
-[data-testid="stImage"] img{width:100%!important;height:auto;aspect-ratio:1/1;object-fit:cover;border-radius:16px}
-div.stButton>button[kind="primary"]{background:#0f766e;border-color:#0f766e;color:#fff}
+header,footer,#MainMenu,[data-testid="stToolbar"],[data-testid="stDecoration"],[data-testid="stSidebar"],[data-testid="collapsedControl"]{display:none!important}
+.stApp{background:#0a0a0b}.block-container{padding:0!important;max-width:480px!important}
+[data-testid="stVerticalBlock"]{gap:0}
+iframe{height:100vh!important;height:100dvh!important;width:100%;border:0}
 </style>""", unsafe_allow_html=True)
 
 # ------------------------------------------------------------------ data
@@ -57,8 +37,9 @@ RAW = [
     ("Dana Golan", 29, "w90", "Haifa", "Carmel Strength", 2, "Intermediate", "Compete at a local CrossFit event", "Physiotherapist. Mixes lifting with intervals.", "Full body circuit", ["squat", "pullup", "treadmill"], 35, 60, "", 4, "Training partner"),
     ("Nadav Haim", 26, "m64", "Petah Tikva", "Iron Haven", 2, "Intermediate", "Bench press 100 kg", "Accountant. Chest day every Monday, no excuses.", "Chest and triceps", ["bench", "pushdown"], None, 65, "Monday 18:00", 3, "Spotting"),
 ]
+PRS = ["Squat 110 kg", "Clean & jerk 100 kg", "5 km in 28 min", "Deadlift 220 kg", "Bench 60 kg", "12 strict muscle-ups", "10 km in 49 min", "Bench 140 kg", "Down 8 kg so far", "Full splits", "15 pull-ups", "Squat 200 kg", "Fran in 5:40", "Bench 100 kg"]
 PEOPLE = [dict(id=i, name=t[0], age=t[1], img=f"https://randomuser.me/api/portraits/{'women' if t[2][0] == 'w' else 'men'}/{t[2][1:]}.jpg",
-               home=t[3], gym=t[4], yrs=t[5], lvl=t[6], goal=t[7], bio=t[8], plan=t[9], ex=t[10], done=t[11], dur=t[12], when=t[13], wk=t[14], op=t[15])
+               home=t[3], gym=t[4], yrs=t[5], lvl=t[6], goal=t[7], bio=t[8], plan=t[9], ex=t[10], done=t[11], dur=t[12], when=t[13], wk=t[14], op=t[15], pr=PRS[i])
           for i, t in enumerate(RAW)]
 
 # pose = head, neck, elbow, hand, hip, knee, ankle (x,y each); A = start, B = finish
@@ -99,21 +80,6 @@ EX = {
                   steps=["Place your forearms on the floor with elbows under shoulders.", "Form a straight line from head to heels.", "Hold and breathe steadily."], tip="Squeeze glutes and abs to stop your hips sagging.",
                   A=(38, 138, 52, 144, 56, 178, 84, 178, 120, 152, 150, 164, 182, 180), B=(38, 138, 52, 144, 56, 178, 84, 178, 120, 146, 150, 160, 182, 180), w=0, anc=None, eq=""),
 }
-ANIM = """<div style="font-family:system-ui;text-align:center"><svg viewBox="0 0 240 200" style="width:100%;max-width:440px;background:#f1f5f9;border-radius:16px">
-<line x1="10" y1="184" x2="230" y2="184" stroke="#cbd5e1" stroke-width="3"/><g stroke="#94a3b8" stroke-width="3" fill="none" stroke-linecap="round">__EQ__</g>
-<g id="g" stroke="#0f766e" stroke-width="5" fill="none" stroke-linecap="round" stroke-linejoin="round"></g></svg></div>
-<script>const A=__A__,B=__B__,anc=__ANC__,w=__W__,S=document.getElementById('g');
-function f(n){const t=(1-Math.cos(n%2600/2600*2*Math.PI))/2,p=A.map((a,i)=>a+(B[i]-a)*t),[hx,hy,nx,ny,ex,ey,wx,wy,px,py,kx,ky,ax,ay]=p;
-let s=`<circle cx="${hx}" cy="${hy}" r="9" fill="#0f766e" stroke="none"/><polyline points="${hx},${hy} ${nx},${ny} ${px},${py}"/><polyline points="${px},${py} ${kx},${ky} ${ax},${ay}"/><polyline points="${nx},${ny} ${ex},${ey} ${wx},${wy}"/>`;
-if(anc)s+=`<line x1="${anc[0]}" y1="${anc[1]}" x2="${wx}" y2="${wy}" stroke="#94a3b8" stroke-width="2"/>`;
-if(w)s+=`<circle cx="${wx}" cy="${wy}" r="8" fill="#334155" stroke="none"/>`;
-S.innerHTML=s;requestAnimationFrame(f)}requestAnimationFrame(f);</script>"""
-
-
-def anim(e):
-    return (ANIM.replace("__EQ__", e["eq"]).replace("__A__", json.dumps(e["A"])).replace("__B__", json.dumps(e["B"]))
-            .replace("__ANC__", json.dumps(e["anc"])).replace("__W__", str(e["w"])))
-
 
 SPORTS = {
     "Focus": ["Gym · חדר כושר", "Running · ריצה"],
@@ -134,184 +100,6 @@ SEED = [
     (9, "Gymnastics · התעמלות", "Handstand hold: 12 seconds today, up from 8 last week.", ["12 s hold"], 12, "Yesterday"),
 ]
 
-# ------------------------------------------------------------------ state and helpers
-ss = st.session_state
-ss.setdefault("saved", set())
-ss.setdefault("hi", set())
-ss.setdefault("gym_sel", "Iron Haven")
-ss.setdefault("pl", set())
-_t = datetime.date.today()
-ss.setdefault("log", [dict(d=_t - datetime.timedelta(days=a), sport=b, min=c, km=e) for a, b, c, e in
-                      [(1, "Gym · חדר כושר", 60, 0), (2, "Running · ריצה", 45, 7.5), (3, "Gym · חדר כושר", 55, 0), (5, "Running · ריצה", 50, 8.2), (6, "Swimming · שחייה", 40, 1.2)]])
-ss.setdefault("up_n", 0)
-ss.setdefault("posts", [dict(id=i, uid=a, sport=sp, text=tx, stats=stt, likes=l, t=w, photo=None) for i, (a, sp, tx, stt, l, w) in enumerate(SEED)])
-ME = (31.965, 34.795)
-with st.sidebar:
-    st.subheader("Your location")
-    if streamlit_geolocation:
-        loc = streamlit_geolocation()
-        if loc and loc.get("latitude") and loc.get("longitude"):
-            ME = (loc["latitude"], loc["longitude"])
-            st.success("Using your current location")
-        else:
-            st.caption("Allow location access to see exact distances. Default: Rishon LeTsiyyon.")
-
-
-def km(ll):
-    r = math.pi / 180
-    a = math.sin((ll[0] - ME[0]) * r / 2) ** 2 + math.cos(ME[0] * r) * math.cos(ll[0] * r) * math.sin((ll[1] - ME[1]) * r / 2) ** 2
-    return 12742 * math.asin(math.sqrt(a))
-
-
-def dist(ll):
-    d = km(ll)
-    return "Under 2 km away" if d < 2 else f"{round(d)} km away"
-
-
-def status(p):
-    if p["done"] is not None:
-        return f'<span class="live">Training now · {p["done"]} min in</span>'
-    return f'<span class="soon">Next session: {p["when"]}</span>'
-
-
-def chips(items):
-    return "".join(f'<span class="chip">{i}</span>' for i in items)
-
-
-def active_at(g):
-    return [p for p in PEOPLE if p["gym"] == g and p["done"] is not None]
-
-
-def toggle_save(i):
-    ss.saved.symmetric_difference_update({i})
-
-
-def say_hi(i):
-    ss.hi.add(i)
-    st.toast(f"Hi sent to {PEOPLE[i]['name'].split()[0]}")
-
-
-def render_map(m):
-    for kw in ({"use_container_width": True}, {"width": "100%"}, {}):
-        try:
-            return st_folium(m, height=380, returned_objects=["last_object_clicked_tooltip"], **kw)
-        except TypeError:
-            continue
-
-
-# ------------------------------------------------------------------ dialogs
-@st.dialog("Profile", width="large")
-def show_profile(pid):
-    p = PEOPLE[pid]
-    a, b = st.columns([1, 1.7])
-    a.image(p["img"], width=220)
-    b.markdown(f"## {p['name']}, {p['age']}")
-    b.caption(f"Lives in {p['home']}  \nTrains at {p['gym']} · {dist(GYMS[p['gym']]['ll'])}")
-    b.markdown(status(p), unsafe_allow_html=True)
-    st.write(p["bio"])
-    st.markdown(f"**Today’s session: {p['plan']}**")
-    if p["done"] is not None:
-        st.progress(min(p["done"] / p["dur"], 1.0), text=f"{p['done']} of {p['dur']} minutes")
-    else:
-        st.caption(f"Planned {p['dur']} minutes · {p['when']}")
-    st.markdown(chips(EX[e]["name"] for e in p["ex"]), unsafe_allow_html=True)
-    c1, c2, c3 = st.columns(3)
-    c1.metric("Training for", f"{p['yrs']} {'year' if p['yrs'] == 1 else 'years'}")
-    c2.metric("Level", p["lvl"])
-    c3.metric("Sessions a week", p["wk"])
-    st.markdown(f"**Goal:** {p['goal']}")
-    st.markdown("**Open to**  \n" + chips(p["op"].split(", ")), unsafe_allow_html=True)
-    d1, d2 = st.columns(2)
-    d1.button("Say hi", key=f"hi{pid}", type="primary", on_click=say_hi, args=(pid,))
-    d2.button("Saved" if pid in ss.saved else "Save", key=f"sv{pid}", on_click=toggle_save, args=(pid,))
-
-
-@st.dialog("How it’s done", width="large")
-def show_exercise(eid):
-    e = EX[eid]
-    st.markdown(f"### {e['name']}")
-    st.caption(f"{e['cat']} · {e['muscles']} · {e['sets']}")
-    components.html(anim(e), height=270)
-    for i, s in enumerate(e["steps"], 1):
-        st.markdown(f"{i}. {s}")
-    st.info("Tip: " + e["tip"])
-    doing = [p for p in PEOPLE if eid in p["ex"] and p["done"] is not None]
-    if doing:
-        st.markdown("**Doing this right now**")
-        cols = st.columns(len(doing[:5]))
-        for c, p in zip(cols, doing[:5]):
-            c.image(p["img"], width=80)
-            c.caption(p["name"].split()[0])
-
-
-def person_card(p, k):
-    with st.container(border=True):
-        st.image(p["img"], width=220)
-        st.markdown(f"**{p['name']}, {p['age']}**")
-        st.caption(f"{p['plan']} · {p['gym']}")
-        st.markdown(status(p), unsafe_allow_html=True)
-        if st.button("View profile", key=f"v{k}{p['id']}"):
-            show_profile(p["id"])
-
-
-def grid(lst, k):
-    cols = st.columns(2)
-    for i, p in enumerate(lst):
-        with cols[i % 2]:
-            person_card(p, k)
-
-
-def toggle_like(i):
-    ss.pl.symmetric_difference_update({i})
-
-
-def delete_post(i):
-    ss.posts = [p for p in ss.posts if p["id"] != i]
-
-
-def share():
-    up = ss.get(f"p_up{ss.up_n}")
-    tx = ss.get("p_text", "").strip()
-    if not tx and not up:
-        st.toast("Add some text or a photo first")
-        return
-    stt = []
-    if ss.p_sport.startswith("Running") and ss.get("p_km", 0) > 0 and ss.get("p_min", 0) > 0:
-        pace = ss.p_min / ss.p_km
-        stt = [f"{ss.p_km:.1f} km", f"{ss.p_min} min", f"{int(pace)}:{int(pace % 1 * 60):02d} /km"]
-    ss.posts.insert(0, dict(id=max([p["id"] for p in ss.posts], default=-1) + 1, uid=None, sport=ss.p_sport, text=tx, stats=stt,
-                            likes=0, t="Just now", photo=up.getvalue() if up else None,
-                            gym=None if ss.get("p_gym", "No gym") == "No gym" else ss.p_gym))
-    ss.p_text, ss.p_km, ss.p_min = "", 0.0, 0
-    ss.up_n += 1
-    st.toast("Your post is live")
-
-
-def post_card(po):
-    me = po["uid"] is None
-    with st.container(border=True):
-        a, b = st.columns([1, 5])
-        if me:
-            a.markdown("**You**")
-        else:
-            a.image(PEOPLE[po["uid"]]["img"], width=56)
-        b.markdown(f"**{'You' if me else PEOPLE[po['uid']]['name']}** · {po['t']}")
-        b.markdown(chips([po["sport"]] + ([f"at {po['gym']}"] if po.get("gym") else [])), unsafe_allow_html=True)
-        st.write(po["text"])
-        if po["photo"]:
-            st.image(po["photo"])
-        else:
-            h = (po["id"] * 61 + 160) % 360
-            st.markdown(f'<div style="height:130px;border-radius:16px;color:#fff;font:700 20px system-ui;display:flex;align-items:flex-end;padding:14px;'
-                        f'background:linear-gradient(135deg,hsl({h},62%,46%),hsl({(h + 60) % 360},58%,26%))">{po["sport"].split(" · ")[0]}</div>', unsafe_allow_html=True)
-        if po["stats"]:
-            st.markdown(chips(po["stats"]), unsafe_allow_html=True)
-        liked = po["id"] in ss.pl
-        c1, c2 = st.columns([1, 1])
-        c1.button(f"{'Liked' if liked else 'Like'} · {po['likes'] + liked}", key=f"pl{po['id']}", on_click=toggle_like, args=(po["id"],))
-        if me:
-            c2.button("Delete", key=f"pd{po['id']}", on_click=delete_post, args=(po["id"],))
-
 
 TYP = "Price not listed. Typical Israeli gym range: ₪250 to ₪400 a month (estimate, confirm with the gym)."
 CHAINS = [  # keywords, price from (₪/month), note. Prices from Israeli press reports, may change.
@@ -321,243 +109,220 @@ CHAINS = [  # keywords, price from (₪/month), note. Prices from Israeli press 
     (("holmes", "הולמס"), None, "Holmes Place premium club. " + TYP),
     (("go active", "גו אקטיב", "great shape", "גרייט שייפ", "sporter", "ספורטר", "sher", "שר פיטנס", "swift", "סוויפט"), None, "Major Israeli chain. " + TYP),
 ]
-MIX = ["Chest and triceps", "Leg day", "Back and biceps", "Treadmill cardio", "Full body", "Shoulders and core", "Spinning class", "Yoga and mobility", "Outdoor run prep"]
-CURVE = [.05, .03, .02, .02, .03, .2, .5, .7, .6, .45, .35, .35, .45, .4, .35, .4, .55, .85, 1, .95, .75, .45, .2, .1]
 
 
-def price_info(name, brand):
-    t = (name + " " + brand).lower()
-    for keys, pr, note in CHAINS:
-        if any(k in t for k in keys):
-            return pr, note
-    return None, TYP
+POSTS = [dict(id=i, uid=a, sport=sp, text=tx, stats=stt, likes=l, t=w, photo=None) for i, (a, sp, tx, stt, l, w) in enumerate(SEED)]
 
+# ------------------------------------------------------------------ front end (HTML, CSS and JavaScript)
+# Gyms worldwide load live inside the app from OpenStreetMap as you move the map.
+TEMPLATE = r"""<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.5.3/leaflet.markercluster.js"></script>
+<style>
+:root{--bg:#0a0a0b;--s1:#121214;--s2:#1b1b1e;--s3:#26262a;--line:#232327;--tx:#ededef;--mu:#8b8b93;--mu2:#5d5d65;--live:#3ddc97;--heart:#ff5d6c;--amb:#e8b04a;--red:#ef5b5b}
+*{box-sizing:border-box;margin:0;-webkit-tap-highlight-color:transparent}html,body{height:100%;background:var(--bg);color:var(--tx);font-family:-apple-system,BlinkMacSystemFont,"Inter","Segoe UI",Roboto,sans-serif;overflow:hidden;-webkit-font-smoothing:antialiased}
+button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}a{color:inherit}
+#app{height:100%;max-width:480px;margin:auto;position:relative;display:flex;flex-direction:column;overflow:hidden;background:var(--bg)}
+#top{display:flex;justify-content:space-between;align-items:center;padding:14px 18px 4px}#app[data-tab=map] #top{display:none}
+.logo{display:flex;align-items:center;gap:9px;font-size:20px;font-weight:800;letter-spacing:-.6px}.logo svg{width:26px;height:26px}
+.ic{display:flex;gap:18px;color:#cfcfd4}svg.i{width:23px;height:23px;fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}
+#screens{flex:1;position:relative;min-height:0;z-index:1;isolation:isolate}.screen{position:absolute;inset:0;overflow-y:auto;display:none;padding-bottom:92px;scrollbar-width:none}.screen::-webkit-scrollbar{display:none}.screen.on{display:block}
+#nav{position:absolute;bottom:0;left:0;right:0;display:flex;align-items:center;justify-content:space-around;background:rgba(10,10,11,.92);backdrop-filter:blur(18px);border-top:1px solid var(--line);padding:9px 0 calc(11px + env(safe-area-inset-bottom,0px));z-index:50}
+#nav button{color:var(--mu2);display:flex;flex-direction:column;align-items:center;gap:4px;font-size:10px;font-weight:600;flex:1;letter-spacing:.2px}#nav button.on{color:#fff}
+#nav .plus{width:44px;height:44px;flex:none;border-radius:50%;background:#ededef;color:#0a0a0b;justify-content:center}
+.subt{display:flex;gap:22px;padding:8px 18px 0;border-bottom:1px solid var(--line);position:sticky;top:0;background:var(--bg);z-index:5}.subt button{padding:10px 0;font-size:14px;font-weight:600;color:var(--mu2);border-bottom:2px solid transparent}.subt button.on{color:#fff;border-color:#fff}
+.stories,.hs{display:flex;gap:14px;overflow-x:auto;padding:12px 18px 8px;scrollbar-width:none}.stories::-webkit-scrollbar,.hs::-webkit-scrollbar{display:none}
+.story{flex:none;width:68px;text-align:center;font-size:11px;color:var(--mu);cursor:pointer}
+.ring{width:66px;height:66px;border-radius:50%;padding:3px;background:conic-gradient(#3ddc97,#ededef,#3ddc97);margin-bottom:5px;position:relative}.ring.off{background:var(--s3)}
+.ring img{width:100%;height:100%;border-radius:50%;border:3px solid var(--bg);object-fit:cover;display:block}.ring i{position:absolute;right:-2px;bottom:-2px;width:22px;height:22px;border-radius:50%;background:#ededef;color:#0a0a0b;font-style:normal;font-weight:800;line-height:22px;border:2px solid var(--bg)}
+.sec{display:flex;justify-content:space-between;align-items:baseline;font-size:17px;font-weight:700;padding:18px 18px 4px;letter-spacing:-.3px}.sec span{font-size:12.5px;color:var(--mu);font-weight:500}
+.ac{flex:none;width:158px;background:var(--s1);border:1px solid var(--line);border-radius:18px;padding:14px 12px;cursor:pointer}.ac .ring{width:50px;height:50px;padding:2px;margin:0 0 10px}.ac .ring img{border-width:2px}.ac b{display:block;font-size:14px}.ac span{display:block;font-size:12px;color:var(--mu);margin-top:2px}.ac em{display:block;font-size:11px;font-style:normal;color:var(--live);margin-top:8px;font-weight:600}
+.gc{flex:none;width:196px;border-radius:18px;padding:14px;height:112px;display:flex;flex-direction:column;justify-content:flex-end;cursor:pointer;border:1px solid var(--line)}.gc b{font-size:15px}.gc span{font-size:12px;color:#b9b9c0;margin-top:2px}
+.post{margin:14px 0 0;padding-top:14px;border-top:1px solid var(--line)}.post header{display:flex;align-items:center;gap:11px;padding:0 18px 12px}
+.post header img{width:40px;height:40px;border-radius:50%;object-fit:cover}.post header div{flex:1;line-height:1.3;font-size:14.5px;font-weight:700}.post header span{display:block;font-size:12px;color:var(--mu);font-weight:400}
+.tag{background:var(--s2);color:#cfcfd4;border-radius:12px;padding:4px 10px;font-size:11.5px;font-weight:700}
+.pm{width:calc(100% - 36px);margin:0 18px;height:230px;border-radius:18px;object-fit:cover;display:block;position:relative;overflow:hidden;border:1px solid var(--line)}img.pm{height:auto;aspect-ratio:1/1}
+.pm.map{background:repeating-linear-gradient(0deg,transparent 0 31px,rgba(255,255,255,.035) 31px 32px),repeating-linear-gradient(90deg,transparent 0 31px,rgba(255,255,255,.035) 31px 32px),radial-gradient(circle at 70% 20%,#26262b,#131316 70%)}
+.pm svg.rt{position:absolute;inset:0;width:100%;height:100%;filter:drop-shadow(0 0 6px rgba(255,255,255,.35))}.pm .lbl{position:absolute;left:14px;bottom:12px;background:rgba(0,0,0,.55);border-radius:12px;padding:4px 10px;font-size:11.5px;font-weight:700;color:#e5e5e8}
+.ps{display:flex;margin:12px 18px 0;padding:12px 0 4px}.ps div{flex:1;padding:0 4px;border-left:1px solid var(--line);padding-left:14px}.ps div:first-child{border:0;padding-left:0}.ps b{display:block;font-size:22px;letter-spacing:-.5px}.ps span{font-size:11.5px;color:var(--mu)}
+.acts{display:flex;gap:18px;padding:12px 18px 4px;color:#cfcfd4}.acts button.pop svg{animation:pop .35s}@keyframes pop{50%{transform:scale(1.4)}}.acts .sv{margin-left:auto}.acts button.on svg{fill:var(--heart);stroke:var(--heart)}.acts .sv.on svg{fill:#fff;stroke:#fff}
+.lk{padding:0 18px;font-size:13.5px;font-weight:700}.cap{padding:4px 18px;font-size:14.5px;line-height:1.5;color:#d4d4d9}.cap b{color:#fff}.cmt{padding:2px 18px 8px;font-size:13px;color:var(--mu);cursor:pointer}
+#mapwrap{position:absolute;inset:0}#map{position:absolute;inset:0;background:#0b0b0d}.leaflet-container{font:inherit}.leaflet-control-attribution{background:rgba(0,0,0,.5)!important;color:#777!important;font-size:9px!important}.leaflet-control-attribution a{color:#999!important}
+.mtop{position:absolute;top:0;left:0;right:0;z-index:500;padding:12px 12px 0;background:linear-gradient(rgba(10,10,11,.95),transparent)}
+.search{display:flex;align-items:center;gap:8px;background:#141416;border:1px solid var(--s3);border-radius:16px;padding:0 14px;height:48px;box-shadow:0 8px 24px rgba(0,0,0,.5);color:var(--mu)}.search input{flex:1;background:none;border:0;outline:0;color:var(--tx);font:inherit;min-width:0}
+.chips{display:flex;gap:8px;overflow-x:auto;padding:10px 0 4px;scrollbar-width:none}.chip{flex:none;background:#141416;border:1px solid var(--s3);border-radius:18px;padding:7px 14px;font-size:13px;font-weight:600;color:#a9a9b1}.chip.on{background:#ededef;border-color:#ededef;color:#0a0a0b}
+.cnt{font-size:11.5px;color:var(--mu);padding:2px 4px}
+.mk{width:36px;height:36px;border-radius:50%;background:#151517;color:#fff;font:800 13px system-ui;display:flex;align-items:center;justify-content:center;border:3px solid;box-shadow:0 3px 12px rgba(0,0,0,.7)}.mk.g{border-color:#7a7a82}.mk.a{border-color:var(--amb)}.mk.r{border-color:var(--red)}
+.cl{width:40px;height:40px;border-radius:50%;background:#ededef;color:#0a0a0b;font:800 13px system-ui;display:flex;align-items:center;justify-content:center;box-shadow:0 3px 14px rgba(0,0,0,.6)}
+.ap{width:44px;height:44px;border-radius:50%;border:3px solid #5d5d65;position:relative;box-shadow:0 3px 12px rgba(0,0,0,.7)}.ap img{width:100%;height:100%;border-radius:50%;object-fit:cover;display:block}.ap.on{border-color:var(--live)}.ap.on:after{content:"";position:absolute;inset:-6px;border-radius:50%;border:2px solid var(--live);opacity:0;animation:pulse 2s infinite}@keyframes pulse{0%{transform:scale(.8);opacity:.8}100%{transform:scale(1.35);opacity:0}}
+.fab{position:absolute;right:12px;z-index:500;width:48px;height:48px;border-radius:50%;background:#141416;border:1px solid var(--s3);display:flex;align-items:center;justify-content:center;box-shadow:0 8px 20px rgba(0,0,0,.55);color:#e5e5e8}
+.around{position:absolute;left:0;right:0;bottom:80px;z-index:500;display:flex;gap:10px;overflow-x:auto;padding:0 12px;scrollbar-width:none}.around::-webkit-scrollbar{display:none}.around .ac{background:rgba(18,18,20,.94);backdrop-filter:blur(10px);width:176px;display:flex;gap:10px;align-items:center;padding:10px}.around .ac .ring{margin:0;flex:none}
+.cr{padding:6px 18px}.pg{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.pc{height:240px;border-radius:20px;background-size:cover;background-position:center;position:relative;overflow:hidden;color:#fff;cursor:pointer;border:1px solid var(--line)}.lv{position:absolute;top:10px;left:10px;background:rgba(0,0,0,.6);border-radius:12px;padding:4px 10px 4px 22px;font-size:11px;font-weight:700}.lv:before{content:"";position:absolute;left:9px;top:9px;width:7px;height:7px;border-radius:50%;background:var(--live)}
+.pn{position:absolute;left:0;right:0;bottom:0;padding:36px 12px 12px;background:linear-gradient(transparent,rgba(0,0,0,.9));line-height:1.3}.pn b{display:block;font-size:17px}.pn span{display:block;font-size:12px;opacity:.85}
+#ov{position:absolute;inset:0;background:rgba(0,0,0,.65);z-index:100;display:none;align-items:flex-end}#ov.on{display:flex}
+#sheet{width:100%;max-height:90%;overflow-y:auto;background:#0f0f11;border-radius:26px 26px 0 0;border-top:1px solid var(--s3);animation:up .25s ease;scrollbar-width:none;position:relative}#sheet::-webkit-scrollbar{display:none}@keyframes up{from{transform:translateY(60px);opacity:0}}
+.grab{width:40px;height:5px;border-radius:3px;background:var(--s3);margin:10px auto}.x{position:absolute;top:14px;right:14px;z-index:5;width:34px;height:34px;border-radius:50%;background:rgba(0,0,0,.55);color:#fff;font-size:14px}
+.hero{padding:40px 20px 18px;min-height:176px;display:flex;flex-direction:column;justify-content:flex-end;margin-top:-25px}.hero b{font-size:26px;letter-spacing:-.6px}.hero>span{color:#b4b4bb;font-size:13px;margin:3px 0 12px}
+.pl i{display:inline-block;font-style:normal;background:rgba(0,0,0,.4);border:1px solid rgba(255,255,255,.1);border-radius:14px;padding:5px 12px;font-size:12.5px;font-weight:600;margin-right:6px}
+.bd{padding:6px 20px 24px}.bd h4,.card h4{font-size:11.5px;text-transform:uppercase;letter-spacing:.9px;color:var(--mu);margin:20px 0 10px;font-weight:700}
+.row{display:flex;align-items:center;gap:16px}.gauge{width:90px;height:90px;border-radius:50%;display:flex;align-items:center;justify-content:center;flex:none}.gauge div{width:72px;height:72px;border-radius:50%;background:#0f0f11;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:20px}
+.stk img,.stk i{width:30px;height:30px;border-radius:50%;object-fit:cover;margin-right:-8px;border:2px solid #0f0f11;display:inline-block;vertical-align:middle}
+.bar{display:flex;align-items:center;gap:10px;font-size:12.5px;margin:7px 0;color:#c9c9cf}.bar span{width:124px}.bar div{flex:1;background:var(--s2);border-radius:6px}.bar i{display:block;height:8px;border-radius:6px;background:#d8d8dd}.bar em{width:20px;font-style:normal;color:var(--mu)}
+.cols{display:flex;align-items:flex-end;gap:3px;height:92px}.col{flex:1;height:100%;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;font-size:9px;color:var(--mu2)}.col i{width:100%;border-radius:4px 4px 0 0;background:var(--s3)}.col.now i{background:#ededef}
+.note{font-size:13px;color:var(--mu);line-height:1.55}.btns{display:flex;gap:10px;margin-top:20px}.btn{flex:1;text-align:center;padding:14px;border-radius:14px;background:var(--s2);border:1px solid var(--s3);font-weight:700;font-size:14px;text-decoration:none;color:var(--tx)}.btn.p{background:#ededef;color:#0a0a0b;border-color:#ededef}
+.h2{height:380px;background-size:cover;background-position:center;position:relative;margin-top:-25px}.h2 .pn b{font-size:30px}.h2 .pn{padding-top:60px}
+.fx{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px}.fx div{background:var(--s1);border:1px solid var(--line);border-radius:14px;padding:11px;font-size:11px;color:var(--mu)}.fx b{display:block;color:#fff;font-size:13.5px;margin-top:3px}
+.big{display:flex;margin:6px 0}.big div{flex:1;border-left:1px solid var(--line);padding-left:14px}.big div:first-child{border:0;padding:0}.big b{display:block;font-size:30px;letter-spacing:-1px}.big span{font-size:12px;color:var(--mu)}
+.track{height:8px;background:var(--s2);border-radius:8px;margin:9px 0}.track i{display:block;height:100%;border-radius:8px;background:#ededef}
+.tg{display:inline-block;background:var(--s2);border:1px solid var(--s3);border-radius:14px;padding:6px 12px;font-size:12.5px;margin:0 6px 6px 0;color:#cfcfd4}
+.tl{height:132px;border-radius:20px;padding:13px;position:relative;overflow:hidden;cursor:pointer;border:1px solid var(--line)}.tl span{font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:#a9a9b1;position:relative}.tl b{position:absolute;left:13px;bottom:12px;font-size:16px}
+.gr{display:grid;grid-template-columns:1fr 1fr;gap:10px;padding:8px 18px}
+.fld{width:100%;background:var(--s1);border:1px solid var(--s3);border-radius:14px;padding:14px;color:var(--tx);font:inherit;margin-top:9px;outline:0}
+.sp{display:flex;gap:8px;overflow-x:auto;padding:6px 0;scrollbar-width:none}.sp::-webkit-scrollbar{display:none}.sp button{flex:none;background:var(--s2);border:1px solid var(--s3);border-radius:16px;padding:8px 14px;font-size:13px;font-weight:600;color:#c4c4ca}.sp button.on{background:#ededef;color:#0a0a0b;border-color:#ededef}
+.me{display:flex;align-items:center;gap:15px;padding:16px 18px 6px}.me img{width:76px;height:76px;border-radius:50%;border:3px solid var(--s3)}.me b{font-size:22px;letter-spacing:-.4px}.me span{display:block;color:var(--mu);font-size:13px;margin-top:2px}
+.kp{display:flex;gap:10px;padding:12px 18px}.kp div{flex:1;background:var(--s1);border:1px solid var(--line);border-radius:18px;padding:14px 4px;text-align:center}.kp b{display:block;font-size:24px;letter-spacing:-.5px}.kp span{font-size:11.5px;color:var(--mu)}
+.rg{width:54px;height:54px;border-radius:50%;margin:0 auto 4px;display:flex;align-items:center;justify-content:center}.rg i{width:42px;height:42px;border-radius:50%;background:var(--s1);display:flex;align-items:center;justify-content:center;font-style:normal;font-weight:800;font-size:18px}
+.card{margin:10px 18px;background:var(--s1);border:1px solid var(--line);border-radius:20px;padding:4px 16px 16px}
+.heat{display:grid;grid-auto-flow:column;grid-template-rows:repeat(7,1fr);gap:4px}.heat i{aspect-ratio:1/1;border-radius:4px;background:#1a1a1d}
+.rec{display:grid;grid-template-columns:1fr 1fr;gap:10px}.rec div{background:var(--s2);border-radius:14px;padding:12px}.rec b{display:block;font-size:20px;letter-spacing:-.4px}.rec span{font-size:11.5px;color:var(--mu)}
+.b2{display:inline-block;border-radius:14px;padding:7px 13px;font-size:12.5px;font-weight:700;margin:0 6px 6px 0}.b2.on{background:#ededef;color:#0a0a0b}.b2.off{background:var(--s2);color:var(--mu2)}
+.cm{margin:12px 0;font-size:14px;line-height:1.5}.cm b{margin-right:6px}
+.club{border-radius:20px;border:1px solid var(--line);padding:14px;height:160px;display:flex;flex-direction:column;justify-content:space-between}.club span{font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:#a9a9b1}.club b{font-size:15.5px;display:block;margin:4px 0 2px}.club em{font-style:normal;font-size:12px;color:var(--mu)}.club button{align-self:flex-start;background:#ededef;color:#0a0a0b;border-radius:14px;padding:6px 14px;font-weight:700;font-size:12.5px}.club button.on{background:var(--s3);color:#ededef}
+.ev{display:flex;gap:14px;align-items:center;margin:10px 18px;background:var(--s1);border:1px solid var(--line);border-radius:18px;padding:12px}.ev .dt{width:56px;height:60px;border-radius:14px;background:var(--s2);display:flex;flex-direction:column;align-items:center;justify-content:center;flex:none}.dt b{font-size:22px;line-height:1}.dt span{font-size:10.5px;text-transform:uppercase;color:var(--mu);letter-spacing:.6px;margin-top:3px}.ev div.t{flex:1;min-width:0}.ev .t b{display:block;font-size:15px}.ev .t span{display:block;font-size:12.5px;color:var(--mu);margin-top:2px}.ev button{background:#ededef;color:#0a0a0b;border-radius:14px;padding:8px 14px;font-weight:700;font-size:12.5px}.ev button.on{background:var(--s3);color:#ededef}
+.lb{display:flex;align-items:center;gap:12px;padding:9px 0;font-size:14.5px;border-top:1px solid var(--line)}.lb:first-of-type{border:0}.lb i{width:20px;color:var(--mu);font-style:normal;font-weight:700}.lb img{width:36px;height:36px;border-radius:50%;object-fit:cover}.lb b{margin-left:auto;font-variant-numeric:tabular-nums}.lb.me2{color:#fff;font-weight:700}
+.pr{margin:10px 18px;background:var(--s1);border:1px solid var(--line);border-radius:18px;padding:14px}.pr b{font-size:15.5px}.pr span{display:block;font-size:12.5px;color:var(--mu);margin-top:3px}
+#toast{position:absolute;left:50%;bottom:98px;transform:translateX(-50%) translateY(20px);background:#ededef;color:#0a0a0b;font-weight:700;font-size:13.5px;padding:11px 18px;border-radius:22px;opacity:0;transition:.25s;z-index:200;pointer-events:none;white-space:nowrap}#toast.on{opacity:1;transform:translateX(-50%)}
+</style></head><body>
+<div id="app" data-tab="home"><div id="top"><div class="logo"><svg viewBox="0 0 32 32" fill="none" stroke="#ededef" stroke-width="3" stroke-linecap="round"><path d="M16 4a12 12 0 1 0 12 12"/><circle cx="16" cy="16" r="3.5" fill="#ededef" stroke="none"/><path d="M22 4.6A12 12 0 0 1 27.4 10" stroke="#3ddc97"/></svg>GymCircle</div><div class="ic"><span id="ib"></span><span id="id"></span></div></div>
+<div id="screens"><section class="screen on" id="s-home"></section><section class="screen" id="s-map"></section><section class="screen" id="s-train"></section><section class="screen" id="s-me"></section></div>
+<nav id="nav"></nav><div id="ov" onclick="if(event.target==this)closeS()"><div id="sheet"></div></div><div id="toast"></div></div>
+<script id="d" type="application/json">__DATA__</script>
+<script>
+const $=s=>document.querySelector(s),$$=s=>document.querySelectorAll(s),D=JSON.parse($('#d').textContent),P=D.people,EX=D.ex,LEGO='https://randomuser.me/api/portraits/lego/3.jpg';
+const IC={home:'<path d="M3 11l9-8 9 8v10a1 1 0 0 1-1 1h-5v-6h-6v6H4a1 1 0 0 1-1-1z"/>',map:'<circle cx="12" cy="12" r="9"/><path d="M15.5 8.5l-2 5-5 2 2-5z"/>',plus:'<path d="M12 5v14M5 12h14"/>',train:'<path d="M6 6v12M18 6v12M3 9v6M21 9v6M6 12h12"/>',me:'<circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/>',heart:'<path d="M12 21s-8-5-8-11a4.5 4.5 0 0 1 8-2.8A4.5 4.5 0 0 1 20 10c0 6-8 11-8 11z"/>',chat:'<path d="M21 12a8 8 0 0 1-11.5 7.2L4 20l1-4.5A8 8 0 1 1 21 12z"/>',mark:'<path d="M6 3h12v18l-6-4-6 4z"/>',search:'<circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/>',loc:'<circle cx="12" cy="12" r="3"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/>',bell:'<path d="M6 16V11a6 6 0 0 1 12 0v5l2 2H4zM10 21h4"/>',send:'<path d="M22 3L2 11l7 3 3 7z"/>',layers:'<path d="M12 3l9 5-9 5-9-5zM3 13l9 5 9-5"/>'};
+const I=n=>`<svg class="i" viewBox="0 0 24 24">${IC[n]}</svg>`,esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+$('#ib').innerHTML=I('bell');$('#id').innerHTML=I('send');
+const hs=s=>[...s].reduce((a,c)=>a+c.charCodeAt(0),0),mat=h=>`radial-gradient(circle at 82% 8%,rgba(255,255,255,.1),transparent 50%),linear-gradient(145deg,hsl(${h},9%,25%),hsl(${h},8%,11%))`;
+let ME=[31.965,34.795];const km=(a,b)=>{const r=Math.PI/180,x=Math.sin((b[0]-a[0])*r/2)**2+Math.cos(a[0]*r)*Math.cos(b[0]*r)*Math.sin((b[1]-a[1])*r/2)**2;return 12742*Math.asin(Math.sqrt(x))},dd=(a,b)=>{const d=km(a,b);return d<1?'Under 1 km':d<10?d.toFixed(1)+' km':Math.round(d)+' km'},dist=g=>dd(ME,[g.lat,g.lon]);
+function rnd(s){let h=2166136261;for(let i=0;i<s.length;i++){h^=s.charCodeAt(i);h=Math.imul(h,16777619)}return()=>{h+=0x6D2B79F5;let t=Math.imul(h^h>>>15,1|h);t^=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296}}
+const CUR=[.05,.03,.02,.02,.03,.2,.5,.7,.6,.45,.35,.35,.45,.4,.35,.4,.55,.85,1,.95,.75,.45,.2,.1],H=()=>(new Date().getUTCHours()+2)%24;
+const MIX=['Chest and triceps','Leg day','Back and biceps','Treadmill cardio','Full body','Shoulders and core','Spinning class','Yoga and mobility','Outdoor run prep'],WT=[5,4,4,5,3,2,2,1,1];
+const G=[],GK=new Set();
+function priceInfo(n,b){const t=(n+' '+(b||'')).toLowerCase();for(const [ks,pr,note] of D.chains)if(ks.some(k=>t.includes(k)))return[pr,note];return[null,D.typ]}
+const live=g=>P.filter(p=>p.gym===g.n&&p.done!=null);
+function act(g){const h=H();g.a=Math.floor(g.cap*CUR[h]*(.6+.5*rnd(g.k+h)()))+(g.demo?live(g).length:0);g.b=g.a/Math.max(g.cap,1);g.l=g.b<.4?'g':g.b<.75?'a':'r'}
+Object.entries(D.gyms).forEach(([n,g],i)=>{const o={k:'d'+i,n,lat:g.ll[0],lon:g.ll[1],addr:g.addr,hrs:g.hours,price:g.price,note:'Membership price shown by the gym community.',demo:1,cap:Math.round(g.members/18),am:g.am,rt:g.rating};act(o);G.push(o);GK.add(o.k)});
+function mix(g){const r=rnd(g.k+'m'+H()),c={},tot=WT.reduce((a,b)=>a+b);for(let i=0;i<g.a;i++){let x=r()*tot,j=0;while(x>WT[j]){x-=WT[j];j++}c[MIX[j]]=(c[MIX[j]]||0)+1}if(g.demo)live(g).forEach(p=>c[p.plan]=(c[p.plan]||0)+1);return Object.entries(c).sort((a,b)=>b[1]-a[1]).slice(0,5)}
+const day=()=>Math.floor(Date.now()/864e5);let mem={};const ls={get:k=>{try{return localStorage.getItem(k)}catch(e){return mem[k]}},set:(k,v)=>{try{localStorage.setItem(k,v)}catch(e){mem[k]=v}}};
+const S={tab:'home',sub:'feed',posts:[],liked:new Set(),saved:new Set(),q:'',f:'all',ath:true,gyms:true,clubs:new Set(),ev:new Set(),cm:{0:[['Gal Malka','Great depth. Next stop 120 kg.'],['Yael Dahan','Strong work!']],1:[['Tamar Azoulay','Beach pace is the best pace.']]},log:[]};
+S.posts=[...JSON.parse(ls.get('gc_posts')||'[]'),...D.posts];S.log=JSON.parse(ls.get('gc_log')||'null')||[[1,'Gym',60,0],[2,'Running',45,7.5],[3,'Gym',55,0],[5,'Running',50,8.2],[6,'Swimming',40,1.2],[9,'Running',38,6.1],[10,'Gym',70,0],[12,'Cycling',60,22],[15,'Gym',50,0],[16,'Running',42,7],[20,'Gym',65,0],[23,'Swimming',35,1],[27,'Running',55,9.4],[30,'Gym',60,0],[34,'Running',48,8],[40,'Gym',55,0],[47,'Running',60,10.2],[52,'Gym',50,0]].map(([o,s,m,k])=>({d:day()-o,s,m,k}));
+const saveP=()=>ls.set('gc_posts',JSON.stringify(S.posts.filter(p=>p.uid==null))),saveL=()=>ls.set('gc_log',JSON.stringify(S.log));
+function toast(m){const t=$('#toast');t.textContent=m;t.classList.add('on');clearTimeout(t.h);t.h=setTimeout(()=>t.classList.remove('on'),1900)}
+function sheet(h){$('#sheet').innerHTML='<div class="grab"></div><button class="x" onclick="closeS()">✕</button>'+h;$('#ov').classList.add('on');$('#sheet').scrollTop=0}function closeS(){$('#ov').classList.remove('on')}
+function nav(){$('#nav').innerHTML=[['home','Home'],['map','Explore'],['plus',''],['train','Train'],['me','Profile']].map(([k,l])=>k=='plus'?`<button class="plus" onclick="create()">${I('plus')}</button>`:`<button class="${S.tab==k?'on':''}" onclick="tab('${k}')">${I(k)}${l}</button>`).join('')}
+function tab(t){S.tab=t;$$('.screen').forEach(s=>s.classList.toggle('on',s.id=='s-'+t));$('#app').dataset.tab=t;nav();({home,map:explore,train,me})[t]()}
+/* ---------- athletes around you ---------- */
+let A=[];
+function buildA(){const r=rnd('a'+ME[0].toFixed(2)+ME[1].toFixed(2)+H()),WN=['Maya','Noa','Shira','Lena','Sofia','Emma','Hana','Zoe','Mia','Ella','Tamar','Yael','Chloe','Nora','Alma'],MN=['Daniel','Omer','Lior','Max','Leo','Adam','Noah','Eitan','Jonas','Ben','Gal','Ethan','Lucas','Idan','Ravi'],LN=['K.','S.','M.','L.','R.','B.','D.','C.','P.','T.'],SP=['Running','Running','Gym','Gym','Cycling','Swimming','HIIT','Yoga'],out=[];
+for(let i=0;i<16;i++){const w=r()<.5,nm=(w?WN:MN)[Math.floor(r()*15)]+' '+LN[Math.floor(r()*10)],sp=SP[Math.floor(r()*8)],lv=r()<.7,ang=r()*6.283,rad=Math.sqrt(r())*.05,m=10+Math.floor(r()*70);let stats,line;
+if(sp=='Running'){const k=(2+r()*9).toFixed(1),pc=4+Math.floor(r()*3)+':'+String(Math.floor(r()*60)).padStart(2,'0');stats=[[k,'km'],[pc,'/km'],[m,'min']];line=`Running · ${k} km`}else if(sp=='Cycling'){const k=(8+r()*30).toFixed(1);stats=[[k,'km'],[(k/(m/60)).toFixed(1),'km/h'],[m,'min']];line=`Cycling · ${k} km`}else if(sp=='Swimming'){const k=(0.4+r()*1.8).toFixed(1);stats=[[k,'km'],[Math.floor(k*20),'laps'],[m,'min']];line=`Swimming · ${k} km`}else{const pl=MIX[Math.floor(r()*MIX.length)];stats=[[m,'min'],[pl.split(' ')[0],'focus'],[Math.floor(r()*5)+3,'exercises']];line=pl}
+out.push({id:'g'+i,name:nm,age:20+Math.floor(r()*20),img:`https://randomuser.me/api/portraits/${w?'women':'men'}/${Math.floor(r()*90)}.jpg`,lat:ME[0]+Math.cos(ang)*rad,lon:ME[1]+Math.sin(ang)*rad/Math.cos(ME[0]*Math.PI/180),sp,live:lv,line:lv?line:'Finished '+(10+Math.floor(r()*40))+' min ago',stats})}
+P.forEach(p=>{const g=G.find(x=>x.n===p.gym);out.push({id:'p'+p.id,demo:p.id,name:p.name,age:p.age,img:p.img,lat:g.lat+(rnd(p.name)()-.5)*.003,lon:g.lon+(rnd(p.name+'x')()-.5)*.003,sp:'Gym',live:p.done!=null,line:p.plan,stats:[[p.done||0,'min'],[p.dur,'planned'],[p.wk,'per week']]})});
+A=out.map(a=>({...a,d:km(ME,[a.lat,a.lon])})).filter(a=>a.d<60).sort((a,b)=>b.live-a.live||a.d-b.d).slice(0,26)}buildA();
+const acard=a=>`<div class="ac" onclick="ath('${a.id}')"><div class="ring ${a.live?'':'off'}"><img src="${a.img}"></div><div><b>${a.name.split(' ')[0]}</b><span>${a.line}</span><em>${a.live?'Live · ':''}${dd(ME,[a.lat,a.lon])}</em></div></div>`;
+function ath(id){const a=A.find(x=>x.id==id);if(!a)return;if(a.demo!=null)return prof(a.demo);sheet(`<div class="h2" style="background-image:url(${a.img})">${a.live?'<span class="lv">Training now</span>':''}<div class="pn"><b>${a.name}, ${a.age}</b><span>${a.sp} · ${dd(ME,[a.lat,a.lon])} from you</span></div></div><div class="bd"><h4>${a.live?'Live session':'Last session'}</h4><p class="note" style="color:#d4d4d9;font-size:15px">${a.line}</p><div class="big" style="margin-top:14px">${a.stats.map(([v,l])=>`<div><b>${v}</b><span>${l}</span></div>`).join('')}</div><div class="btns"><button class="btn p" onclick="toast('Kudos sent to ${a.name.split(' ')[0]}')">Give kudos</button><button class="btn" onclick="toast('Hi sent to ${a.name.split(' ')[0]}')">Say hi</button></div></div>`)}
+/* ---------- feed ---------- */
+function route(id,sp){const r=rnd('r'+id);let x=26,y=120,pts=[[x,y]];for(let i=0;i<13;i++){x+=10+r()*10;y+=(r()-.5)*58;y=Math.max(34,Math.min(166,y));pts.push([x,y])}
+const d='M'+pts.map(p=>p.map(v=>v.toFixed(0)).join(' ')).join(' L'),e=pts[pts.length-1],s=pts[0];return `<svg class="rt" viewBox="0 0 300 200" preserveAspectRatio="xMidYMid meet"><path d="${d}" fill="none" stroke="#f2f2f4" stroke-width="3.5" stroke-linejoin="round" stroke-linecap="round"/><circle cx="${s[0]}" cy="${s[1]}" r="6" fill="#3ddc97"/><circle cx="${e[0]}" cy="${e[1]}" r="6" fill="#fff" stroke="#0a0a0b" stroke-width="2"/></svg>`}
+function post(po){const me=po.uid==null,p=me?null:P[po.uid],sp=po.sport.split(' · ')[0],n=me?'You':p.name,lk=S.liked.has(po.id);let m;
+if(po.photo)m=`<img class="pm" src="${po.photo}" ondblclick="like(${po.id},1)">`;else{const rt=['Running','Cycling','Swimming'].includes(sp)||/Run|km/.test(po.stats.join())?route(po.id,sp):`<svg class="rt" viewBox="0 0 24 24" style="padding:70px 110px;filter:none"><g fill="none" stroke="#3a3a40" stroke-width="1.1" stroke-linecap="round">${IC.train}</g></svg>`;m=`<div class="pm map" ondblclick="like(${po.id},1)">${rt}<div class="lbl">${sp}</div></div>`}
+const ps=po.stats.length?`<div class="ps">${po.stats.slice(0,3).map(x=>{const m=String(x).match(/^([\d.:,]+)\s*(.*)$/),v=m?[m[1],m[2]||' ']:[x,' '];return `<div><b>${v[0]}</b><span>${v[1]}</span></div>`}).join('')}</div>`:'';
+return `<article class="post"><header><img src="${me?LEGO:p.img}"><div>${n}<span>${po.t}${po.gym?' · '+esc(po.gym):''}</span></div><span class="tag">${sp}</span>${me?`<button onclick="del(${po.id})" style="color:var(--mu);margin-left:6px">✕</button>`:''}</header>${m}${ps}
+<div class="acts"><button id="h${po.id}" class="${lk?'on':''}" onclick="like(${po.id})">${I('heart')}</button><button onclick="cm(${po.id})">${I('chat')}</button><button class="sv" onclick="this.classList.toggle('on')">${I('mark')}</button></div>
+<div class="lk" id="l${po.id}">${po.likes+(lk?1:0)} kudos</div><div class="cap"><b>${me?'You':p.name.split(' ')[0]}</b> ${esc(po.text)}</div><div class="cmt" onclick="cm(${po.id})">${(S.cm[po.id]||[]).length?'View all '+S.cm[po.id].length+' comments':'Add a comment'}</div></article>`}
+function like(id,dbl){const po=S.posts.find(p=>p.id==id);if(dbl&&S.liked.has(id))return;S.liked.has(id)?S.liked.delete(id):S.liked.add(id);const b=$('#h'+id);b.classList.toggle('on',S.liked.has(id));b.classList.remove('pop');void b.offsetWidth;b.classList.add('pop');$('#l'+id).textContent=po.likes+(S.liked.has(id)?1:0)+' kudos'}
+function del(id){S.posts=S.posts.filter(p=>p.id!=id);saveP();home()}
+function cm(id){const L=S.cm[id]||[];sheet(`<div class="bd" style="padding-top:34px"><h4 style="margin-top:0">Comments</h4>${L.map(([n,t])=>`<div class="cm"><b>${esc(n)}</b>${esc(t)}</div>`).join('')||'<p class="note">Be the first to comment.</p>'}<input class="fld" id="ci" placeholder="Add a comment" onkeydown="if(event.key=='Enter')addc(${id})"><div class="btns"><button class="btn p" onclick="addc(${id})">Send</button></div></div>`)}
+function addc(id){const v=$('#ci').value.trim();if(!v)return;(S.cm[id]=S.cm[id]||[]).push(['You',v]);cm(id);home()}
+function gcard(g){return `<div class="gc" style="background:${mat(hs(g.k)%360)}" onclick="openGym('${g.k}')"><b>${esc(g.n.slice(0,26))}</b><span>${g.a} training now · ${g.price?'from ₪'+g.price:'ask for price'}</span></div>`}
+const CLUBS=[['Dawn Patrol Run Club','Running','Weekdays 6:00 AM','2.4k'],['Iron Circle Lifters','Gym','Strength and form checks','1.8k'],['Weekend Long Runs','Running','Saturdays 7:00 AM','3.1k'],['Women Who Lift','Gym','Supportive strength community','1.2k'],['Beach Cyclists','Cycling','Sunday group rides','860'],['Mobility Lab','Yoga','Daily 15 minute resets','970'],['Calisthenics Collective','Calisthenics','Rings, bars and skills','740'],['Open Water Swimmers','Swimming','Weekly sea swims','430']];
+function evs(){const nr=[...G].sort((a,b)=>km(ME,[a.lat,a.lon])-km(ME,[b.lat,b.lon])).slice(0,6);return[['5K Social Run',2,'07:00'],['Leg Day Meetup',3,'18:30'],['Sunday Mobility Class',4,'09:00'],['Beginner Strength Workshop',5,'19:00'],['Long Run: 15K',7,'06:45'],['HIIT in the Park',8,'18:00']].map(([t,o,tm],i)=>{const d=new Date(Date.now()+o*864e5);return{id:'e'+i,t,tm,d,place:nr[i]?nr[i].n:'Meeting point near you',going:20+Math.floor(rnd('ev'+i)()*90)}})}
+const subFeed=()=>`<div class="stories"><div class="story" onclick="create()"><div class="ring off"><img src="${LEGO}"><i>+</i></div>Your story</div>${P.map(p=>({p,l:p.done!=null})).sort((a,b)=>b.l-a.l).map(({p,l})=>`<div class="story" onclick="prof(${p.id})"><div class="ring ${l?'':'off'}"><img src="${p.img}"></div>${p.name.split(' ')[0]}</div>`).join('')}</div>
+<div class="sec">Training around you<span>${A.filter(a=>a.live).length} live now</span></div><div class="hs">${A.slice(0,10).map(acard).join('')}</div>
+<div class="sec">Busy gyms near you</div><div class="hs">${[...G].filter(g=>g.demo||km(ME,[g.lat,g.lon])<12).sort((a,b)=>b.a-a.a).slice(0,7).map(gcard).join('')}</div><div class="sec">Community</div>${S.posts.map(post).join('')}`;
+const subClubs=()=>`<div class="sec">Clubs for you<span>Join to see their feed</span></div><div class="gr">${CLUBS.map(([n,s,d,m],i)=>`<div class="club" style="background:${mat(i*43+10)}"><div><span>${s}</span><b>${n}</b><em>${d}</em></div><div style="display:flex;justify-content:space-between;align-items:center"><button class="${S.clubs.has(i)?'on':''}" onclick="S.clubs.has(${i})?S.clubs.delete(${i}):S.clubs.add(${i});toast(S.clubs.has(${i})?'Joined ${n.replace(/'/g,'')}':'Left club');home()">${S.clubs.has(i)?'Joined':'Join'}</button><em>${m} members</em></div></div>`).join('')}</div>`;
+const subEv=()=>`<div class="sec">Upcoming near you</div>`+evs().map(e=>`<div class="ev"><div class="dt"><b>${e.d.getDate()}</b><span>${e.d.toLocaleDateString('en-GB',{month:'short'})}</span></div><div class="t"><b>${e.t}</b><span>${e.d.toLocaleDateString('en-GB',{weekday:'long'})} · ${e.tm}</span><span>${esc(e.place.slice(0,34))} · ${e.going+(S.ev.has(e.id)?1:0)} going</span></div><button class="${S.ev.has(e.id)?'on':''}" onclick="S.ev.has('${e.id}')?S.ev.delete('${e.id}'):S.ev.add('${e.id}');toast(S.ev.has('${e.id}')?'You are going':'Removed');home()">${S.ev.has(e.id)?'Going':'Join'}</button></div>`).join('');
+function stats(){const L=S.log,t=day(),ds=new Set(L.map(x=>x.d));let d=ds.has(t)?t:t-1,st=0;while(ds.has(d)){st++;d--}return{L,t,st,kt:L.filter(l=>l.d>t-30).reduce((a,l)=>a+l.k,0),n:L.filter(l=>l.d>t-30).length,sp:new Set(L.map(l=>l.s))}}
+const subChal=()=>{const s=stats(),ch=[['Run 100 km this month',s.kt,100,'km'],['12 workouts this month',s.n,12,''],['7 day streak',s.st,7,'days'],['Try 3 different sports',s.sp.size,3,'']],
+bd=[...P.map(p=>[p.name,p.img,Math.round(rnd('b'+p.id)()*110+20)]),['You',LEGO,Math.round(s.kt)]].sort((a,b)=>b[2]-a[2]).slice(0,8);
+return `<div class="sec">Monthly challenges</div>${ch.map(([a,v,g,u])=>`<div class="pr"><b>${a}</b><span>${+v.toFixed(1)} of ${g} ${u}</span><div class="track"><i style="width:${Math.min(v/g,1)*100}%"></i></div></div>`).join('')}<div class="sec">Distance leaderboard<span>This month</span></div><div class="card" style="padding-top:12px">${bd.map(([n,im,k],i)=>`<div class="lb ${n=='You'?'me2':''}"><i>${i+1}</i><img src="${im}">${n}<b>${k} km</b></div>`).join('')}</div>`};
+function home(){const sc=$('#s-home').scrollTop;$('#s-home').innerHTML=`<div class="subt">${[['feed','Feed'],['clubs','Clubs'],['events','Events'],['chal','Challenges']].map(([k,l])=>`<button class="${S.sub==k?'on':''}" onclick="S.sub='${k}';home()">${l}</button>`).join('')}</div>`+({feed:subFeed,clubs:subClubs,events:subEv,chal:subChal})[S.sub]();$('#s-home').scrollTop=sc}
+/* ---------- explore map ---------- */
+let M=null,CL=null,MK=null,AL=null;
+function explore(){const w=$('#s-map');if(!w.dataset.i){w.dataset.i=1;w.innerHTML=`<div id="mapwrap"><div id="map"></div></div><div class="mtop"><div class="search">${I('search')}<input id="q" placeholder="Search a gym, chain or city anywhere" onkeydown="if(event.key=='Enter')srch()" oninput="S.q=this.value;clearTimeout(window.qt);window.qt=setTimeout(draw,250)"></div><div class="chips"><button class="chip on" id="cg" onclick="tg('gyms')">Gyms</button><button class="chip on" id="ca" onclick="tg('ath')">Athletes</button><button class="chip" id="cq" onclick="S.f=S.f=='quiet'?'all':'quiet';this.classList.toggle('on');draw()">Quiet now</button><button class="chip" id="cp" onclick="S.f=S.f=='price'?'all':'price';this.classList.toggle('on');draw()">Has price</button></div><div class="cnt" id="cnt"></div></div><button class="fab" style="top:150px" onclick="locate()">${I('loc')}</button><div class="around" id="around"></div>`;
+M=L.map('map',{zoomControl:false}).setView(ME,12);L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',{subdomains:'abcd',maxZoom:19,attribution:'© OpenStreetMap © CARTO'}).addTo(M);
+CL=L.markerClusterGroup({chunkedLoading:true,maxClusterRadius:50,iconCreateFunction:c=>L.divIcon({html:`<div class="cl">${c.getChildCount()}</div>`,className:'',iconSize:[40,40]})});M.addLayer(CL);AL=L.layerGroup().addTo(M);
+MK=L.marker(ME,{icon:L.divIcon({html:'<div style="width:18px;height:18px;border-radius:50%;background:#fff;border:4px solid #3b82f6;box-shadow:0 0 0 9px rgba(59,130,246,.28)"></div>',className:'',iconSize:[18,18]})}).addTo(M);draw();drawA();M.on('moveend',()=>{clearTimeout(window.mv);window.mv=setTimeout(()=>{loadView();cnt()},500)});loadView();cnt()}setTimeout(()=>M&&M.invalidateSize(),50)}
+function tg(k){S[k]=!S[k];$(k=='gyms'?'#cg':'#ca').classList.toggle('on',S[k]);k=='gyms'?draw():drawA()}
+const vis=g=>{const q=S.q.toLowerCase();return(!q||(g.n+' '+g.addr).toLowerCase().includes(q))&&(S.f=='all'||(S.f=='quiet'&&g.b<.4)||(S.f=='price'&&g.price))};
+const gm=g=>L.marker([g.lat,g.lon],{icon:L.divIcon({html:`<div class="mk ${g.l}">${g.a}</div>`,className:'',iconSize:[36,36]})}).on('click',()=>openGym(g.k));
+function draw(){CL.clearLayers();if(!S.gyms)return;const q=S.q.toLowerCase(),L2=G.filter(vis);CL.addLayers(L2.map(gm));if(q&&L2.length&&q.length>2)M.fitBounds(L2.slice(0,40).map(g=>[g.lat,g.lon]),{maxZoom:15,padding:[60,60]});cnt()}
+function drawA(){AL.clearLayers();if(S.ath)A.forEach(a=>L.marker([a.lat,a.lon],{icon:L.divIcon({html:`<div class="ap ${a.live?'on':''}"><img src="${a.img}"></div>`,className:'',iconSize:[44,44]}),zIndexOffset:500}).on('click',()=>ath(a.id)).addTo(AL));$('#around').innerHTML=A.slice(0,12).map(acard).join('')}
+function cnt(){const b=M.getBounds(),n=G.filter(g=>b.contains([g.lat,g.lon])).length,m=A.filter(a=>a.live&&b.contains([a.lat,a.lon])).length;$('#cnt').textContent=M.getZoom()<11?'Zoom in to load gyms in this area':`${n} gyms in view · ${m} athletes live`}
+const LD=new Set();let busy=0;
+async function loadView(){if(!M||M.getZoom()<11)return;const b=M.getBounds(),c=.25,cells=[];for(let la=Math.floor(b.getSouth()/c);la<=Math.floor(b.getNorth()/c);la++)for(let lo=Math.floor(b.getWest()/c);lo<=Math.floor(b.getEast()/c);lo++){const k=la+','+lo;if(!LD.has(k)&&cells.length<6)cells.push([k,la*c,lo*c])}
+for(const [k,s,w] of cells){LD.add(k);const q=`[out:json][timeout:25];(node["leisure"="fitness_centre"](${s},${w},${s+c},${w+c});way["leisure"="fitness_centre"](${s},${w},${s+c},${w+c}););out center 600;`;let js=null;
+for(const u of['https://overpass-api.de/api/interpreter','https://overpass.kumi.systems/api/interpreter']){try{const r=await fetch(u,{method:'POST',body:'data='+encodeURIComponent(q),headers:{'Content-Type':'application/x-www-form-urlencoded'}});if(r.ok){js=await r.json();break}}catch(e){}}
+if(!js){LD.delete(k);continue}const add=[];js.elements.forEach(e=>{const t=e.tags||{},la=e.lat||(e.center||{}).lat,lo=e.lon||(e.center||{}).lon,n=t['name:en']||t.name||t.brand,key='o'+e.id;if(!n||!la||GK.has(key))return;GK.add(key);const[pr,note]=priceInfo(n,t.brand),g={k:key,n,lat:la,lon:lo,brand:t.brand,addr:[t['addr:street'],t['addr:housenumber'],t['addr:city']].filter(Boolean).join(' ')||'Address not listed',hrs:t.opening_hours||'Hours not listed',price:pr,note,web:t.website||t['contact:website'],ph:t.phone||t['contact:phone'],cap:25+Math.floor(rnd('c'+e.id)()*50)};act(g);G.push(g);add.push(g)});
+if(S.gyms)CL.addLayers(add.filter(vis).map(gm));cnt()}}
+function srch(){const q=$('#q').value.trim();if(!q)return;const g=G.find(x=>x.n.toLowerCase().includes(q.toLowerCase()));if(g){M.flyTo([g.lat,g.lon],15);return}toast('Searching '+q+'...');fetch('https://nominatim.openstreetmap.org/search?format=json&limit=1&q='+encodeURIComponent(q)).then(r=>r.json()).then(r=>{if(!r.length)return toast('Place not found');S.q='';M.flyTo([+r[0].lat,+r[0].lon],13);setTimeout(loadView,1200)}).catch(()=>toast('Search unavailable'))}
+function locate(){if(!navigator.geolocation)return toast('Location not available');navigator.geolocation.getCurrentPosition(p=>{ME=[p.coords.latitude,p.coords.longitude];buildA();MK.setLatLng(ME);M.flyTo(ME,13);drawA();setTimeout(loadView,1200);toast('Using your location')},()=>toast('Allow location access to continue'),{enableHighAccuracy:true,timeout:10000})}
+function openGym(k){if(S.tab!='map')tab('map');const g=G.find(x=>x.k==k);if(M)M.flyTo([g.lat,g.lon],15,{duration:.8});
+const pct=Math.min(100,Math.round(g.b*100)),col={g:'#8b8b93',a:'#e8b04a',r:'#ef5b5b'}[g.l],mx=mix(g),top=Math.max(1,...mx.map(x=>x[1])),hrs=[...Array(19)].map((_,i)=>i+5),vals=hrs.map(h=>g.cap*CUR[h]),mv=Math.max(...vals)||1,lv=live(g).slice(0,5),near=A.filter(a=>a.live&&km([g.lat,g.lon],[a.lat,a.lon])<1.5).length;
+const stk=lv.length?lv.map(p=>`<img src="${p.img}">`).join(''):[...Array(Math.min(g.a,5))].map((_,i)=>`<i style="background:hsl(${i*40},6%,${30+i*8}%)"></i>`).join('');
+sheet(`<div class="hero" style="background:${mat(hs(g.k)%360)}"><b>${esc(g.n)}</b><span>${esc(g.addr)} · ${dist(g)}${g.rt?' · ★ '+g.rt:''}</span><div class="pl"><i>${g.a} training now</i><i>${g.price?'from ₪'+g.price+' / month':'Ask for price'}</i></div></div><div class="bd"><div class="row"><div class="gauge" style="background:conic-gradient(${col} ${pct}%,#222226 0)"><div>${pct}%</div></div><div><b style="font-size:17px">${g.l=='g'?'Quiet':g.l=='a'?'Moderate':'Busy'} right now</b><p class="note">${esc(g.hrs)}</p><div class="stk">${stk}</div></div></div>
+<h4>What people are training</h4>${mx.map(([n,v])=>`<div class="bar"><span>${n}</span><div><i style="width:${v/top*100}%"></i></div><em>${v}</em></div>`).join('')||'<p class="note">Nobody is training right now.</p>'}
+<h4>Best times to go</h4><div class="cols">${hrs.map((h,i)=>`<div class="col ${h==H()?'now':''}"><i style="height:${Math.max(4,vals[i]/mv*100)}%"></i>${h}</div>`).join('')}</div>
+<h4>Membership</h4><p class="note">${esc(g.note)}</p>${g.am?'<h4>Facilities</h4>'+g.am.map(x=>`<span class="tg">${x}</span>`).join(''):''}<p class="note" style="margin-top:14px;font-size:11.5px">${g.demo?'Community gym':'Location data from OpenStreetMap'} · activity is simulated until members check in${near?' · '+near+' athletes live within 1.5 km':''}</p>
+<div class="btns"><button class="btn p" onclick="checkin('${g.k}')">Check in</button><a class="btn" target="_blank" href="https://www.google.com/maps/dir/?api=1&destination=${g.lat},${g.lon}">Directions</a>${g.web?`<a class="btn" target="_blank" href="${esc(g.web)}">Website</a>`:''}</div>
+${g.demo?'<h4>Community members</h4><div class="pg">'+P.filter(p=>p.gym===g.n).map(pc).join('')+'</div>':''}</div>`)}
+function checkin(k){const g=G.find(x=>x.k==k);S.log.push({d:day(),s:'Gym',m:60,k:0});saveL();toast('Checked in at '+g.n.slice(0,22))}
+function pc(p){return `<div class="pc" onclick="prof(${p.id})" style="background-image:url(${p.img})">${p.done!=null?'<span class="lv">Training now</span>':''}<div class="pn"><b>${p.name.split(' ')[0]}, ${p.age}</b><span>${p.plan}</span><span>${p.gym}</span></div></div>`}
+function prof(i){const p=P[i],pct=Math.round(Math.min((p.done||0)/p.dur,1)*100);
+sheet(`<div class="h2" style="background-image:url(${p.img})">${p.done!=null?'<span class="lv">Training now</span>':''}<div class="pn"><b>${p.name}, ${p.age}</b><span>Lives in ${p.home} · trains at ${p.gym}</span></div></div><div class="bd"><p class="note" style="font-size:14.5px;color:#d4d4d9">${p.bio}</p><h4>Today: ${p.plan}</h4><p class="note">${p.done!=null?p.done+' of '+p.dur+' minutes done':'Planned '+p.dur+' minutes · '+p.when}</p><div class="track"><i style="width:${pct}%"></i></div>${p.ex.map(e=>`<span class="tg">${EX[e].name}</span>`).join('')}
+<h4>Details</h4><div class="fx">${[['Training for',p.yrs+(p.yrs==1?' year':' years')],['Level',p.lvl],['Per week',p.wk+' sessions'],['Home gym',p.gym],['Personal best',p.pr],['Goal',p.goal]].map(([a,b])=>`<div>${a}<b>${b}</b></div>`).join('')}</div><h4>Open to</h4>${p.op.split(', ').map(x=>`<span class="tg">${x}</span>`).join('')}
+<div class="btns"><button class="btn p" onclick="toast('Hi sent to ${p.name.split(' ')[0]}')">Say hi</button><button class="btn" onclick="toast('Kudos sent')">Give kudos</button></div></div>`)}
+/* ---------- create ---------- */
+const C={sport:'Gym · חדר כושר',img:null};
+function create(){C.img=null;const all=Object.values(D.sports).flat(),dg=Object.keys(D.gyms);
+sheet(`<div class="bd" style="padding-top:34px"><h4 style="margin-top:0">New post</h4><div class="sp" id="spo">${all.map(s=>`<button class="${C.sport==s?'on':''}" onclick="C.sport=this.dataset.s;pickS()" data-s="${esc(s)}">${esc(s.split(' · ')[0])}</button>`).join('')}</div><textarea class="fld" id="pt" rows="3" placeholder="What did you do today? A personal best, a route you loved, a tip for others"></textarea><div id="rn" style="display:none"><div class="row"><input class="fld" id="pk" type="number" step="0.1" placeholder="Distance (km)"><input class="fld" id="pm2" type="number" placeholder="Minutes"></div></div>
+<select class="fld" id="pg"><option value="">Tag a gym (optional)</option>${dg.map(n=>`<option>${n}</option>`).join('')}</select><label class="btn" style="display:block;margin-top:10px">Add a photo<input type="file" id="pf" accept="image/*" hidden onchange="pick(this)"></label><img id="pv" style="width:100%;border-radius:16px;margin-top:10px;display:none"><div class="btns"><button class="btn p" onclick="publish()">Share</button></div></div>`)}
+function pickS(){$$('#spo button').forEach(b=>b.classList.toggle('on',b.dataset.s==C.sport));$('#rn').style.display=C.sport.startsWith('Running')?'block':'none'}
+function pick(el){const f=el.files[0];if(!f)return;const r=new FileReader();r.onload=e=>{const i=new Image();i.onload=()=>{const s=Math.min(1,900/Math.max(i.width,i.height)),c=document.createElement('canvas');c.width=i.width*s;c.height=i.height*s;c.getContext('2d').drawImage(i,0,0,c.width,c.height);C.img=c.toDataURL('image/jpeg',.8);$('#pv').src=C.img;$('#pv').style.display='block'};i.src=e.target.result};r.readAsDataURL(f)}
+function publish(){const t=$('#pt').value.trim();if(!t&&!C.img)return toast('Add some text or a photo');let st=[];const k=+$('#pk').value,m=+$('#pm2').value;if(C.sport.startsWith('Running')&&k>0&&m>0){const pc=m/k;st=[k.toFixed(1)+' km',Math.floor(pc)+':'+String(Math.floor(pc%1*60)).padStart(2,'0')+' /km',m+' min']}
+S.posts.unshift({id:Date.now()%1e9+1000,uid:null,sport:C.sport,text:t,stats:st,likes:0,t:'Just now',photo:C.img,gym:$('#pg').value});saveP();closeS();S.sub='feed';tab('home');toast('Your post is live')}
+/* ---------- train ---------- */
+function fig(e,t){const a=e.A.map((v,i)=>v+(e.B[i]-v)*t),[hx,hy,nx,ny,ex,ey,wx,wy,px,py,kx,ky,ax,ay]=a;return `<circle cx="${hx}" cy="${hy}" r="9" fill="#ededef" stroke="none"/><polyline points="${hx},${hy} ${nx},${ny} ${px},${py}"/><polyline points="${px},${py} ${kx},${ky} ${ax},${ay}"/><polyline points="${nx},${ny} ${ex},${ey} ${wx},${wy}"/>`+(e.anc?`<line x1="${e.anc[0]}" y1="${e.anc[1]}" x2="${wx}" y2="${wy}" stroke-width="2" stroke="rgba(255,255,255,.35)"/>`:'')+(e.w?`<circle cx="${wx}" cy="${wy}" r="8" fill="#5d5d65" stroke="none"/>`:'')}
+const figSvg=(id,c)=>`<svg data-f="${id}" viewBox="0 0 240 200" class="fgs"><line x1="10" y1="184" x2="230" y2="184" stroke="rgba(255,255,255,.18)" stroke-width="3"/><g stroke="rgba(255,255,255,.22)" stroke-width="3" fill="none" stroke-linecap="round">${EX[id].eq}</g><g class="fg" stroke="${c}" stroke-width="5" fill="none" stroke-linecap="round" stroke-linejoin="round"></g></svg>`;
+(function loop(n){const t=(1-Math.cos(n%2600/2600*2*Math.PI))/2;$$('svg[data-f]').forEach(s=>{s.querySelector('.fg').innerHTML=fig(EX[s.dataset.f],t)});requestAnimationFrame(loop)})(0);
+const PRG=[['Beginner Full Body','3 days a week · 6 weeks',['Mon: squat, bench, lat pulldown, plank','Wed: deadlift, overhead press, curls','Fri: full body circuit and treadmill']],['Push Pull Legs','6 days a week · intermediate',['Push: bench, overhead press, triceps pushdown','Pull: deadlift, pull-ups, lat pulldown, curls','Legs: squat, deadlift variations, core']],['5K in 8 Weeks','3 runs a week · beginner',['Weeks 1 to 2: run 1 min, walk 2 min x 8','Weeks 3 to 5: run 5 to 10 min blocks','Weeks 6 to 8: continuous 20 to 30 min run']],['Mobility Reset','15 minutes daily',['Hips and ankles opener','Thoracic spine rotations','Shoulder and neck release']]];
+let TC='All';
+function train(){const cats=['All',...new Set(Object.values(EX).map(e=>e.cat))];$('#s-train').innerHTML=`<div class="sec" style="padding-top:16px">Programs</div><div class="hs">${PRG.map(([n,d,s],i)=>`<div class="gc" style="background:${mat(i*60+200)}" onclick="prg(${i})"><b>${n}</b><span>${d}</span></div>`).join('')}</div><div class="sec">Workout library</div><div class="sp" style="padding:6px 18px">${cats.map(c=>`<button class="${TC==c?'on':''}" onclick="TC='${c}';train()">${c}</button>`).join('')}</div><div class="gr">${Object.entries(EX).filter(([k,e])=>TC=='All'||e.cat==TC).map(([k,e])=>`<div class="tl" style="background:${mat(hs(e.cat)*7%360)}" onclick="ex('${k}')"><span>${e.cat}</span>${figSvg(k,'#ededef').replace('class="fgs"','class="fgs" style="position:absolute;right:-6px;top:10px;width:120px"')}<b>${e.name}</b></div>`).join('')}</div>`}
+function prg(i){const[n,d,s]=PRG[i];sheet(`<div class="bd" style="padding-top:34px"><b style="font-size:24px">${n}</b><p class="note">${d}</p><h4>Plan</h4>${s.map((x,j)=>`<div class="pr" style="margin:8px 0"><b>${x.split(':')[0]}</b><span>${x.includes(':')?x.split(': ').slice(1).join(': '):''}</span></div>`).join('')}<div class="btns"><button class="btn p" onclick="closeS();toast('Program started')">Start program</button></div></div>`)}
+function ex(k){const e=EX[k],dn=P.filter(p=>p.ex.includes(k)&&p.done!=null).slice(0,5);sheet(`<div class="bd" style="padding-top:34px"><b style="font-size:24px">${e.name}</b><p class="note">${e.cat} · ${e.muscles} · ${e.sets}</p><div style="background:var(--s1);border:1px solid var(--line);border-radius:20px;margin:14px 0">${figSvg(k,'#ededef').replace('class="fgs"','style="width:100%;display:block"')}</div><h4>How it is done</h4>${e.steps.map((s,i)=>`<p class="note" style="margin:8px 0"><b style="color:#fff">${i+1}</b>  ${s}</p>`).join('')}<h4>Coach tip</h4><p class="note">${e.tip}</p>${dn.length?`<h4>Doing this right now</h4><div class="stk">${dn.map(p=>`<img src="${p.img}">`).join('')}</div>`:''}</div>`)}
+/* ---------- profile ---------- */
+function me(){const{L,t,st,kt,sp}=stats(),wk=[...Array(7)].map((_,i)=>t-6+i),mn=wk.map(x=>L.filter(l=>l.d==x).reduce((a,l)=>a+l.m,0)),mx=Math.max(1,...mn),tot=L.reduce((a,l)=>a+l.k,0),hrs=Math.round(L.reduce((a,l)=>a+l.m,0)/60),longest=Math.max(0,...L.filter(l=>l.s=='Running').map(l=>l.k)),bw=Math.max(0,...[...Array(12)].map((_,w)=>L.filter(l=>l.d>t-7*(w+1)&&l.d<=t-7*w).reduce((a,l)=>a+l.m,0)));
+const heat=[...Array(84)].map((_,i)=>{const d=t-83+i,m=L.filter(l=>l.d==d).reduce((a,l)=>a+l.m,0);return `<i style="background:${m==0?'#1a1a1d':m<30?'#3a3a40':m<50?'#6b6b73':m<70?'#a8a8b0':'#ededef'}"></i>`}).join('');
+$('#s-me').innerHTML=`<div class="me"><img src="${LEGO}"><div><b>You</b><span>Gym and running community</span></div></div><div class="kp"><div><span class="rg" style="background:conic-gradient(#ededef ${Math.min(st/7,1)*100}%,#222226 0)"><i>${st}</i></span><span>day streak</span></div><div><b>${mn.reduce((a,b)=>a+b)}</b><span>min this week</span></div><div><b>${L.length}</b><span>workouts</span></div></div>
+<div class="card"><h4>Last 12 weeks</h4><div class="heat">${heat}</div><h4>This week</h4><div class="cols">${wk.map((x,i)=>`<div class="col ${x==t?'now':''}"><i style="height:${Math.max(4,mn[i]/mx*100)}%"></i>${['S','M','T','W','T','F','S'][new Date(x*864e5).getUTCDay()]}</div>`).join('')}</div></div>
+<div class="card"><h4>Personal records</h4><div class="rec"><div><b>${+tot.toFixed(1)} km</b><span>total distance</span></div><div><b>${hrs} h</b><span>total training</span></div><div><b>${longest} km</b><span>longest run</span></div><div><b>${bw} min</b><span>best week</span></div></div><h4>Badges</h4>${[['First workout',L.length>=1],['3 day streak',st>=3],['Explorer: 3 sports',sp.size>=3],['Century runner: 100 km',tot>=100],['10 workouts',L.length>=10]].map(([a,b])=>`<span class="b2 ${b?'on':'off'}">${a}</span>`).join('')}</div>
+<div style="padding:4px 18px"><button class="btn p" style="width:100%" onclick="logW()">Log a workout</button></div>`}
+function logW(){sheet(`<div class="bd" style="padding-top:34px"><h4 style="margin-top:0">Log a workout</h4><select class="fld" id="ls">${['Gym','Running','Swimming','Cycling','Yoga','Football','Basketball','Tennis'].map(s=>`<option>${s}</option>`).join('')}</select><div class="row"><input class="fld" id="lm" type="number" placeholder="Minutes" value="45"><input class="fld" id="lk" type="number" step="0.1" placeholder="Distance km"></div><div class="btns"><button class="btn p" onclick="S.log.push({d:day(),s:$('#ls').value,m:+$('#lm').value||30,k:+$('#lk').value||0});saveL();closeS();me();toast('Workout saved')">Save</button></div></div>`)}
+nav();home();
+</script></body></html>
+"""
 
-@st.cache_data(ttl=86400, show_spinner="Loading gyms across Israel...")
-def load_osm():
-    q = '[out:json][timeout:60];area["ISO3166-1"="IL"][admin_level=2]->.a;(node["leisure"="fitness_centre"](area.a);way["leisure"="fitness_centre"](area.a););out center tags 4000;'
-    for url in ("https://overpass-api.de/api/interpreter", "https://overpass.kumi.systems/api/interpreter"):
-        try:
-            req = urllib.request.Request(url, data=urllib.parse.urlencode({"data": q}).encode(), headers={"User-Agent": "GymCircleDemo/1.0"})
-            out = []
-            for e in json.load(urllib.request.urlopen(req, timeout=70))["elements"]:
-                t, c = e.get("tags", {}), e.get("center", {})
-                lat, lon = e.get("lat", c.get("lat")), e.get("lon", c.get("lon"))
-                name = t.get("name:en") or t.get("name") or t.get("brand")
-                if name and lat and lon:
-                    out.append(dict(osm=e["id"], name=name, lat=lat, lon=lon, brand=t.get("brand", ""), hours=t.get("opening_hours", "Hours not listed"),
-                                    addr=" ".join(x for x in [t.get("addr:street"), t.get("addr:housenumber"), t.get("addr:city")] if x) or "Address not listed",
-                                    web=t.get("website") or t.get("contact:website"), phone=t.get("phone") or t.get("contact:phone")))
-            if out:
-                return out
-        except Exception:
-            continue
-    return []
-
-
-def build_dir():
-    d = [dict(key=f"d{i}", name=n, lat=g["ll"][0], lon=g["ll"][1], addr=g["addr"], hours=g["hours"], price=g["price"], web=None, phone=None, demo=True,
-              note="Membership price shown by the gym community.", cap=g["members"] // 18) for i, (n, g) in enumerate(GYMS.items())]
-    for o in load_osm():
-        pr, note = price_info(o["name"], o["brand"])
-        d.append(dict(key=f"o{o['osm']}", name=o["name"], lat=o["lat"], lon=o["lon"], addr=o["addr"], hours=o["hours"], price=pr, web=o["web"], phone=o["phone"],
-                      demo=False, note=note, cap=25 + int(random.Random(str(o["osm"])).random() * 50)))
-    return d
-
-
-def hour_now():
-    return (datetime.datetime.utcnow().hour + 2) % 24
-
-
-def sim_active(g, h):
-    return int(g["cap"] * CURVE[h] * random.Random(f"{g['key']}{h}").uniform(.6, 1.1))
-
-
-def mix_for(g, n):
-    c = Counter(random.Random(g["key"] + str(hour_now())).choices(MIX, weights=[5, 4, 4, 5, 3, 2, 2, 1, 1], k=max(n, 0)))
-    if g["demo"]:
-        c.update(p["plan"] for p in active_at(g["name"]))
-    return c
-
-
-def gyms_tab():
-    D, h = build_dir(), hour_now()
-    for g in D:
-        g["act"] = sim_active(g, h) + (len(active_at(g["name"])) if g["demo"] else 0)
-    c1, c2 = st.columns([2, 1])
-    q = c1.text_input("Search gyms", placeholder="Search by gym name, chain or street", label_visibility="collapsed")
-    r = c2.selectbox("Within", [5, 10, 25, 50, 400], index=2, format_func=lambda x: f"Within {x} km" if x < 400 else "All Israel", label_visibility="collapsed")
-    sort = st.radio("Sort", ["Closest", "Most active", "Lowest price"], horizontal=True, label_visibility="collapsed")
-    res = [g for g in D if km((g["lat"], g["lon"])) <= r and (not q or q.lower() in (g["name"] + " " + g["addr"]).lower())]
-    res.sort(key={"Closest": lambda g: km((g["lat"], g["lon"])), "Most active": lambda g: -g["act"], "Lowest price": lambda g: (g["price"] is None, g["price"] or 0)}[sort])
-    res = res[:400]
-    st.caption(f"{len(res)} gyms shown · {sum(g['act'] for g in res)} people training now (simulated activity)" + ("" if load_osm() else " · Live gym database unavailable, showing featured gyms only"))
-    m = folium.Map(location=ME, zoom_start={5: 13, 10: 12, 25: 11, 50: 10, 400: 8}[r], tiles="OpenStreetMap")
-    folium.CircleMarker(ME, radius=8, color="#fff", weight=3, fill=True, fill_color="#2563eb", fill_opacity=1, tooltip="You").add_to(m)
-    mc = MarkerCluster().add_to(m)
-    for g in res:
-        b = g["act"] / max(g["cap"], 1)
-        col = "#16a34a" if b < .4 else "#f59e0b" if b < .75 else "#dc2626"
-        html = (f'<div style="width:30px;height:30px;border-radius:50%;background:{col};color:#fff;border:2px solid #fff;font:700 12px system-ui;'
-                f'display:flex;align-items:center;justify-content:center;box-shadow:0 1px 6px rgba(0,0,0,.4)">{g["act"]}</div>')
-        folium.Marker((g["lat"], g["lon"]), tooltip=f"{g['name']} · {g['key']}", icon=folium.DivIcon(html=html, icon_size=(30, 30), icon_anchor=(15, 15))).add_to(mc)
-    out = render_map(m)
-    clicked = ((out or {}).get("last_object_clicked_tooltip") or "").rsplit(" · ", 1)[-1]
-    if clicked and clicked != ss.get("last_click") and any(g["key"] == clicked for g in D):
-        ss["last_click"], ss["gsel"] = clicked, clicked
-    st.caption("Circle number = people training now. Green is quiet, amber moderate, red busy. Tap a pin for details.")
-    by = {g["key"]: g for g in D}
-    opts = [g["key"] for g in res[:80]]
-    if ss.get("gsel") in by and ss["gsel"] not in opts:
-        opts.insert(0, ss["gsel"])
-    if not opts:
-        st.info("No gyms match. Try a wider distance.")
-        return
-    if ss.get("gsel") not in opts:
-        ss["gsel"] = opts[0]
-    g = by[st.selectbox("Gym", opts, key="gsel", format_func=lambda k: f"{by[k]['name']} · {by[k]['addr'][:30]}", label_visibility="collapsed")]
-    ss["gname"] = g["name"]
-    busy = g["act"] / max(g["cap"], 1)
-    st.subheader(g["name"])
-    st.caption(f"{g['addr']} · {dist((g['lat'], g['lon']))}")
-    a, b, c = st.columns(3)
-    a.metric("Training now", g["act"])
-    b.metric("Busy level", "Quiet" if busy < .4 else "Moderate" if busy < .75 else "Busy")
-    c.metric("Membership", f"from ₪{g['price']}" if g["price"] else "Ask the gym")
-    st.caption(g["note"])
-    st.markdown(f"**Hours:** {g['hours']}" + (f"  \n**Phone:** {g['phone']}" if g["phone"] else ""))
-    if g["web"]:
-        st.link_button("Visit website", g["web"])
-    st.markdown("#### What people are training now")
-    mx = mix_for(g, g["act"])
-    st.bar_chart(pd.Series(dict(mx)).sort_values()) if mx else st.caption("Nobody is training right now.")
-    st.markdown("#### Best times to go")
-    st.bar_chart(pd.Series({f"{x:02d}:00": int(g["cap"] * CURVE[x]) for x in range(5, 24)}))
-    if g["demo"]:
-        st.markdown("#### Members in the community")
-        for p in [p for p in PEOPLE if p["gym"] == g["name"]]:
-            r1, r2, r3 = st.columns([1, 4, 2])
-            r1.image(p["img"], width=64)
-            r2.markdown(f"**{p['name']}, {p['age']}**  \n{p['plan']} · {p['dur']} min")
-            r2.markdown(status(p), unsafe_allow_html=True)
-            if r3.button("View profile", key=f"g{p['id']}"):
-                show_profile(p["id"])
-    gp = [p for p in ss.posts if p.get("gym") == g["name"]]
-    if gp:
-        st.markdown("#### Posts from this gym")
-        for po in gp[:3]:
-            post_card(po)
-    else:
-        st.caption("No posts yet. Share a workout in the Feed and tag this gym.")
-    with st.expander("About this data"):
-        st.markdown("Gym locations, addresses and opening hours come live from OpenStreetMap. Chain prices come from Israeli press reports and can change, so confirm with the gym. "
-                    "Live activity and workout mix are simulated in this demo and become real once members check in.")
-
-
-def add_log():
-    ss.log.append(dict(d=datetime.date.today(), sport=ss.l_sp, min=ss.l_min, km=ss.l_km))
-    st.toast("Workout saved")
-
-
-def log_section():
-    with st.expander("Log a workout"):
-        c1, c2, c3 = st.columns(3)
-        c1.selectbox("Sport", ALL_SPORTS, key="l_sp")
-        c2.number_input("Minutes", min_value=1, max_value=600, value=45, key="l_min")
-        c3.number_input("Distance km (optional)", min_value=0.0, max_value=200.0, step=0.1, key="l_km")
-        st.button("Save workout", type="primary", on_click=add_log)
-
-
-def me_tab():
-    L, today = ss.log, datetime.date.today()
-    days = {x["d"] for x in L}
-    d, streak = (today if today in days else today - datetime.timedelta(days=1)), 0
-    while d in days:
-        streak, d = streak + 1, d - datetime.timedelta(days=1)
-    week = {(today - datetime.timedelta(days=i)).strftime("%m-%d"): sum(l["min"] for l in L if l["d"] == today - datetime.timedelta(days=i)) for i in range(6, -1, -1)}
-    kmt, sports = sum(l["km"] for l in L), {l["sport"] for l in L}
-    a, b, c = st.columns(3)
-    a.metric("Streak", f"{streak} days")
-    b.metric("This week", f"{sum(week.values())} min")
-    c.metric("Workouts", len(L))
-    st.bar_chart(pd.Series(week))
-    st.markdown("**Badges**")
-    st.markdown("".join(f'<span class="{"chip" if ok else "soon"}" style="margin:0 6px 6px 0">{t}</span>' for t, ok in
-                        [("First workout", len(L) >= 1), ("3 day streak", streak >= 3), ("Explorer: 3 sports", len(sports) >= 3), ("Century runner: 100 km", kmt >= 100)]), unsafe_allow_html=True)
-    st.markdown("**Challenges**")
-    for t, v, goal, u in [("Run 100 km", kmt, 100, "km"), ("Complete 12 workouts", len(L), 12, ""), ("Try 3 different sports", len(sports), 3, "")]:
-        st.progress(min(v / goal, 1.0), text=f"{t}: {v:g} / {goal} {u}".strip())
-    st.markdown("**Distance leaderboard** (demo data)")
-    board = sorted([(p["name"], round(random.Random(p["id"]).uniform(20, 140), 1)) for p in PEOPLE] + [("You", round(kmt, 1))], key=lambda x: -x[1])[:8]
-    st.markdown("  \n".join(f"{i}. {'**You**' if n == 'You' else n} · {k} km" for i, (n, k) in enumerate(board, 1)))
-
-
-# ------------------------------------------------------------------ layout
-st.markdown('<div class="brand">GymCircle</div><div class="tagl">Your gym, your people.</div>', unsafe_allow_html=True)
-t_feed, t_gyms, t_home, t_work, t_me = st.tabs(["Feed", "Gyms", "People", "Train", "Me"])
-
-with t_feed:
-    live_p = [p for p in PEOPLE if p["done"] is not None][:6]
-    st.caption("Training now")
-    for c, p in zip(st.columns(6), live_p):
-        c.image(p["img"], width=64)
-        c.caption(p["name"].split()[0])
-    with st.container(border=True):
-        st.markdown("**Share your workout**")
-        sp = st.selectbox("Sport", ALL_SPORTS, key="p_sport")
-        st.selectbox("Tag a gym (optional)", ["No gym"] + list(GYMS) + ([ss["gname"]] if ss.get("gname") and ss["gname"] not in GYMS else []), key="p_gym")
-        st.text_area("What did you do today?", key="p_text", height=80, placeholder="A new personal best, a route you loved, a tip for others...")
-        if sp.startswith("Running"):
-            r1, r2 = st.columns(2)
-            r1.number_input("Distance (km)", min_value=0.0, max_value=100.0, step=0.1, key="p_km")
-            r2.number_input("Time (minutes)", min_value=0, max_value=600, step=1, key="p_min")
-        st.file_uploader("Add a photo (optional)", type=["jpg", "jpeg", "png"], key=f"p_up{ss.up_n}")
-        st.button("Share", type="primary", on_click=share)
-    flt = st.radio("Show", ["All", "Gym", "Running", "Other sports"], horizontal=True, label_visibility="collapsed")
-    for po in ss.posts:
-        k = po["sport"].split(" · ")[0]
-        if flt == "All" or (flt == "Gym" and k == "Gym") or (flt == "Running" and k == "Running") or (flt == "Other sports" and k not in ("Gym", "Running")):
-            post_card(po)
-    with st.expander("All sports on GymCircle"):
-        for grp, items in SPORTS.items():
-            st.markdown(f"**{grp}**")
-            st.markdown(chips(items), unsafe_allow_html=True)
-
-with t_home:
-    live = sorted([p for p in PEOPLE if p["done"] is not None], key=lambda p: km(GYMS[p["gym"]]["ll"]))
-    st.markdown(f"### {len(live)} people are training near you right now")
-    st.caption("See who is in, what they are working on, and say hi before you head over.")
-    grid(live, "l")
-    st.markdown("### Planning to train today")
-    grid([p for p in PEOPLE if p["done"] is None], "p")
-
-with t_gyms:
-    gyms_tab()
-
-with t_work:
-    log_section()
-    st.markdown("### Workout library")
-    st.caption("Tap any exercise to see how it is done.")
-    cat = st.radio("Muscle group", ["All"] + sorted({e["cat"] for e in EX.values()}), horizontal=True, label_visibility="collapsed")
-    cols = st.columns(2)
-    for i, (eid, e) in enumerate([x for x in EX.items() if cat in ("All", x[1]["cat"])]):
-        with cols[i % 2], st.container(border=True):
-            st.markdown(f"**{e['name']}**")
-            st.caption(f"{e['cat']} · {e['level']} · {e['sets']}")
-            if st.button("See how it’s done", key=f"ex{eid}"):
-                show_exercise(eid)
-
-with t_me:
-    me_tab()
-    st.markdown("**People you saved or said hi to**")
-    ids = sorted(ss.saved | ss.hi)
-    if not ids:
-        st.info("People you save or say hi to will appear here.")
-    for i in ids:
-        p = PEOPLE[i]
-        a, b, c = st.columns([1, 4, 2])
-        a.image(p["img"], width=72)
-        b.markdown(f"**{p['name']}, {p['age']}**  \n{p['plan']} · {p['gym']}")
-        b.caption("Hi sent" if i in ss.hi else "Saved")
-        if c.button("View profile", key=f"s{i}"):
-            show_profile(i)
+DATA = json.dumps(dict(people=PEOPLE, gyms=GYMS, ex=EX, sports=SPORTS, posts=POSTS, chains=CHAINS, typ=TYP), ensure_ascii=False).replace("</", "<\\/")
+components.html(TEMPLATE.replace("__DATA__", DATA), height=900)
